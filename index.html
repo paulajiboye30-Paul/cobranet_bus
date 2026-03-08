@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Cobranet Limited – Staff Bus Booking</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+<!-- ═══ LOGIN ═══ -->
+<div id="page-login" class="page active">
+  <div class="login-box">
+    <div class="login-logo-wrap">
+      <div class="login-logo">CL</div>
+      <div class="login-company">Cobranet Limited</div>
+      <div class="login-subtitle">Staff Bus Seat Booking System</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Staff Username</label>
+      <input class="form-input" id="login-user" type="text" placeholder="Enter your username" autocomplete="username"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <input class="form-input" id="login-pass" type="password" placeholder="Enter your password" autocomplete="current-password"/>
+    </div>
+    <div id="login-error" class="form-error hidden"></div>
+    <button class="btn btn-primary w-full btn-lg" style="margin-top:.6rem;" onclick="doLogin()">Sign In →</button>
+    <div class="login-divider">— Secure Internal Portal —</div>
+    <p class="text-center text-sm text-muted">Authorised Cobranet staff only.</p>
+  </div>
+</div>
+
+<!-- ═══ FORCE PASSWORD CHANGE ═══ -->
+<div id="page-change-password" class="page">
+  <div class="change-pw-box">
+    <div class="change-pw-header">
+      <div class="change-pw-icon">🔐</div>
+      <div class="change-pw-title">Set Your Password</div>
+      <div class="change-pw-sub">Your account was created with a temporary password.<br/>Please set a new personal password to continue.</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">New Password</label>
+      <input class="form-input" id="new-pw-1" type="password" placeholder="Create a strong password" oninput="checkPwStrength()"/>
+      <div class="pw-strength mt-1"><div class="pw-strength-bar" id="pw-strength-bar" style="width:0%;"></div></div>
+      <div id="pw-strength-label" class="text-sm text-muted mt-1"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Confirm New Password</label>
+      <input class="form-input" id="new-pw-2" type="password" placeholder="Re-enter your new password"/>
+    </div>
+    <div id="pw-change-error" class="form-error hidden"></div>
+    <button class="btn btn-primary w-full btn-lg" style="margin-top:.5rem;" onclick="doChangePassword()">Set Password & Continue →</button>
+  </div>
+</div>
+
+<!-- ═══ DASHBOARD ═══ -->
+<div id="page-dashboard" class="page">
+  <nav class="topnav">
+    <div class="topnav-brand">
+      <div class="topnav-logo">CL</div>
+      <div>
+        <div class="topnav-title">Cobranet Limited</div>
+        <div class="topnav-sub">Staff Bus Booking</div>
+      </div>
+    </div>
+    <div class="topnav-right">
+      <span class="topnav-clock" id="dash-clock">--:--:--</span>
+      <span class="topnav-user" id="dash-username"></span>
+      <button class="btn btn-secondary btn-sm" onclick="doLogout()">Logout</button>
+    </div>
+  </nav>
+  <div class="main-content">
+    <div class="page-header">
+      <h1>Seat Selection</h1>
+      <p>Select one seat for today's staff bus. One seat per staff member only.</p>
+    </div>
+
+    <div id="status-banner" class="status-banner banner-closed">
+      <div class="banner-dot dot-red" id="banner-dot"></div>
+      <span id="banner-text">Loading…</span>
+    </div>
+
+    <div id="countdown-section" class="card hidden">
+      <div class="card-body countdown-wrap">
+        <div class="countdown-label">Seat booking opens in</div>
+        <div class="countdown-timer" id="countdown-display">00:00:00</div>
+        <div class="countdown-sub" id="countdown-sub"></div>
+      </div>
+    </div>
+
+    <div id="my-booking-card" class="my-booking hidden">
+      <div class="my-booking-seat" id="my-booking-num">–</div>
+      <div class="my-booking-text">
+        <span class="text-muted text-sm">Your reserved seat</span>
+        <strong id="my-booking-label">Seat –</strong>
+        <div style="margin-top:.4rem;"><button class="btn btn-outline btn-sm" onclick="changeMyBooking()">Change Seat</button></div>
+      </div>
+    </div>
+
+    <div id="seat-section" class="card hidden">
+      <div class="card-header">
+        <span class="card-title">🚌 Bus Seat Map — 30 Seats</span>
+        <span class="text-sm text-muted" id="seats-remaining"></span>
+      </div>
+      <div class="card-body">
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#dcfce7;border-color:#86efac;"></div>Available</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#fee2e2;border-color:#fca5a5;"></div>Taken</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#fff4e8;border-color:#ffd0a0;"></div>Your Seat</div>
+        </div>
+        <div class="seat-grid" id="seat-grid"></div>
+      </div>
+    </div>
+
+    <div id="results-section" class="card hidden">
+      <div id="results-date-bar" class="results-date-heading">
+        <span>📋</span>
+        <div>
+          <div class="rdate-label">Bus Seat Arrangement</div>
+          <div class="rdate-val" id="results-date-text">—</div>
+        </div>
+      </div>
+      <div class="card-header" style="border-radius:0;">
+        <span class="card-title">Seat Assignments</span>
+        <span class="text-sm text-muted" id="results-count"></span>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Seat</th><th>Staff Name</th><th>Time Selected</th></tr></thead>
+            <tbody id="results-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ ADMIN ═══ -->
+<div id="page-admin" class="page">
+  <nav class="topnav">
+    <div class="topnav-brand">
+      <div class="topnav-logo">CL</div>
+      <div>
+        <div class="topnav-title">Admin Panel</div>
+        <div class="topnav-sub">Cobranet Limited</div>
+      </div>
+    </div>
+    <div class="topnav-right">
+      <span id="test-mode-nav-badge" class="test-mode-badge hidden">⚙ TEST MODE</span>
+      <span class="topnav-clock" id="admin-clock">--:--:--</span>
+      <button class="btn btn-secondary btn-sm" onclick="goToDashboard()">Dashboard</button>
+      <button class="btn btn-secondary btn-sm" onclick="doLogout()">Logout</button>
+    </div>
+  </nav>
+  <div class="main-content">
+    <div class="page-header">
+      <h1>Admin Dashboard</h1>
+      <p>Manage staff, bookings, and testing controls.</p>
+    </div>
+
+    <div class="stats-row" id="admin-stats"></div>
+
+    <!-- Testing Mode Panel -->
+    <div class="test-panel">
+      <div class="test-panel-title">⚙ Testing Mode Controls</div>
+      <div class="test-controls">
+        <button id="btn-toggle-test" class="btn btn-primary btn-sm" onclick="toggleTestMode()">▶ Enable Testing Mode</button>
+        <button id="btn-set-open"    class="btn btn-success btn-sm hidden" onclick="setTestState('open')">🟢 Booking Open</button>
+        <button id="btn-set-results" class="btn btn-black btn-sm hidden"   onclick="setTestState('results')">📋 Show Results</button>
+        <button id="btn-set-closed"  class="btn btn-secondary btn-sm hidden" onclick="setTestState('before_open')">🔒 Booking Closed</button>
+        <div id="test-state-info" class="hidden" style="display:none;align-items:center;gap:.4rem;">
+          <span class="test-state-label">Active state:</span>
+          <span class="test-state-val" id="test-state-val">—</span>
+        </div>
+      </div>
+      <p class="test-note">
+        Testing mode lets you instantly simulate any booking phase — open, results, or closed — without waiting for the real schedule.
+        Disable to re-sync with the live 4:50–5:00 PM window. Bookings made during testing are real and persist.
+      </p>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tab-nav">
+      <button class="tab-btn active" onclick="switchTab('tab-users',this)">👥 Staff Users</button>
+      <button class="tab-btn" onclick="switchTab('tab-bookings',this)">🎫 Today's Bookings</button>
+      <button class="tab-btn" onclick="switchTab('tab-history',this)">📜 History</button>
+      <button class="tab-btn" onclick="switchTab('tab-reservations',this)">🔒 Seat Reservations</button>
+      <button class="tab-btn" onclick="switchTab('tab-settings',this)">⚙️ Settings</button>
+    </div>
+
+    <!-- USERS -->
+    <div class="tab-pane active" id="tab-users">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Registered Staff Members</span>
+          <button class="btn btn-primary btn-sm" onclick="openAddUserModal()">+ Add Staff</button>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Username</th><th>Full Name</th><th>Role</th><th>Password</th><th>Actions</th></tr></thead>
+              <tbody id="users-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOOKINGS -->
+    <div class="tab-pane" id="tab-bookings">
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:1rem;">
+        <button class="btn btn-danger btn-sm" onclick="confirmResetBookings()">🔄 Reset Today's Bookings</button>
+        <button class="btn btn-black btn-sm" onclick="exportPDF()">⬇ Export PDF</button>
+        <button class="btn btn-secondary btn-sm" onclick="exportExcel()">⬇ Export Excel</button>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Today's Seat Bookings</span></div>
+        <div class="card-body" style="padding:0;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Seat</th><th>Staff Name</th><th>Username</th><th>Time</th><th>Date</th></tr></thead>
+              <tbody id="admin-bookings-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HISTORY -->
+    <div class="tab-pane" id="tab-history">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Full Booking History</span></div>
+        <div class="card-body" style="padding:0;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Seat</th><th>Staff Name</th><th>Username</th><th>Time</th></tr></thead>
+              <tbody id="history-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RESERVATIONS -->
+    <div class="tab-pane" id="tab-reservations">
+      <div class="res-panel">
+        <div class="res-panel-title">🔒 Reserve a Seat</div>
+        <div class="res-form-row">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" style="color:rgba(255,255,255,.7);">Seat Number</label>
+            <select class="form-input" id="res-seat-num" style="background:#1a1a1a;color:#fff;border-color:#333;"></select>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" style="color:rgba(255,255,255,.7);">Label / Name</label>
+            <input class="form-input" id="res-label" type="text" placeholder="e.g. Driver, Admin" style="background:#1a1a1a;color:#fff;border-color:#333;"/>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" style="color:rgba(255,255,255,.7);">Type</label>
+            <select class="form-input" id="res-type" onchange="toggleResDays()" style="background:#1a1a1a;color:#fff;border-color:#333;">
+              <option value="permanent">Permanent</option>
+              <option value="temporary">Temporary (X days)</option>
+            </select>
+          </div>
+          <div class="form-group" id="res-days-group" style="margin-bottom:0;display:none;">
+            <label class="form-label" style="color:rgba(255,255,255,.7);">Duration (days)</label>
+            <input class="form-input" id="res-days" type="number" min="1" max="365" value="1" style="background:#1a1a1a;color:#fff;border-color:#333;"/>
+          </div>
+        </div>
+        <div id="res-error" style="color:var(--red);font-size:.78rem;margin-bottom:.5rem;display:none;"></div>
+        <button class="btn btn-primary btn-sm" onclick="addReservation()">+ Reserve Seat</button>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Current Seat Reservations</span>
+          <span class="text-sm text-muted" id="res-count"></span>
+        </div>
+        <div class="card-body" style="padding:.75rem 1rem;" id="res-list-wrap">
+          <div class="empty-state" id="res-empty">No seat reservations configured.</div>
+          <div id="res-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div class="tab-pane" id="tab-settings">
+      <div class="card">
+        <div class="card-header"><span class="card-title">System Settings</span></div>
+        <div class="card-body">
+          <p class="text-sm text-muted" style="margin-bottom:1rem;">Configure the booking schedule. Changes take effect immediately when not in testing mode.</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:1rem;">
+            <div class="form-group">
+              <label class="form-label">Booking Opens (HH:MM)</label>
+              <input class="form-input" id="setting-open" type="time" value="16:50"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Booking Closes (HH:MM)</label>
+              <input class="form-input" id="setting-close" type="time" value="17:00"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Results Until (HH:MM)</label>
+              <input class="form-input" id="setting-results" type="time" value="17:20"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Total Seats</label>
+              <input class="form-input" id="setting-seats" type="number" min="1" max="60" value="30"/>
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+          <div class="separator"></div>
+          <p class="text-sm" style="color:var(--red);font-weight:700;margin-bottom:.75rem;">⚠ Danger Zone</p>
+          <button class="btn btn-danger btn-sm" onclick="confirmClearHistory()">🗑 Clear All History</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div id="modal-overlay" class="modal-overlay hidden" onclick="closeModal(event)">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-title" id="modal-title"></div>
+    <div id="modal-body"></div>
+    <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1.25rem;" id="modal-footer"></div>
+  </div>
+</div>
+<div id="toast-container"></div>
+
+<script src="script.js"></script>
+</body>
+</html>

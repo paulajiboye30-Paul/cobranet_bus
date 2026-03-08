@@ -1,0 +1,24 @@
+{
+  "name": "cobranet-bus-booking",
+  "version": "1.0.0",
+  "description": "Cobranet Staff Bus Booking System - A full-stack application for managing staff bus seat reservations",
+  "main": "index.html",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "keywords": [
+    "bus-booking",
+    "staff-management",
+    "seat-reservation",
+    "cobranet"
+  ],
+  "author": "Cobranet Limited",
+  "license": "MIT",
+  "dependencies": {
+    "mongodb": "^6.3.0"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}
