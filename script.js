@@ -97,6 +97,18 @@ async function doLogin() {
 
     if (data.success) {
       currentUser = data.user;
+
+      // BUG 1 FIX — Persist session so a page refresh does not log the user out.
+      // We store only the fields needed to restore routing; the password is never stored.
+      localStorage.setItem('cobranet_user', JSON.stringify({
+        _id:         currentUser._id,
+        id:          currentUser._id,   // alias used by some API calls
+        name:        currentUser.name,
+        username:    currentUser.username,
+        role:        currentUser.role,
+        mustChangePw: currentUser.mustChangePw || false
+      }));
+
       document.getElementById('login-error').classList.add('hidden');
       document.getElementById('login-user').value = '';
       document.getElementById('login-pass').value = '';
@@ -144,6 +156,9 @@ async function afterLogin() {
  * Logs out the current user
  */
 function doLogout() {
+  // BUG 1 FIX — Remove the persisted session so the next page load returns to login.
+  localStorage.removeItem('cobranet_user');
+
   currentUser = null;
   cachedBookings = {};
   cachedUsers = [];
@@ -206,6 +221,18 @@ async function doChangePassword() {
 
     if (data.success) {
       currentUser.mustChangePw = false;
+
+      // BUG 1 FIX — Refresh the stored session now that mustChangePw is cleared,
+      // otherwise a refresh would land back on the change-password page.
+      localStorage.setItem('cobranet_user', JSON.stringify({
+        _id:          currentUser._id,
+        id:           currentUser._id,
+        name:         currentUser.name,
+        username:     currentUser.username,
+        role:         currentUser.role,
+        mustChangePw: false
+      }));
+
       err.classList.add('hidden');
       document.getElementById('new-pw-1').value = '';
       document.getElementById('new-pw-2').value = '';
@@ -1202,6 +1229,60 @@ function switchTab(id, btn) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// BUG 2 FIX — SEAT RESET BETWEEN ROUNDS
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Clears all temporary (per-round) seat selections from the UI and from the
+ * in-memory booking cache, then re-applies only the permanently/temporarily
+ * reserved seats that are still active in the database.
+ *
+ * Called whenever the system transitions INTO a new countdown cycle
+ * (i.e. state changes TO before_open or reset).
+ *
+ * Rules:
+ *  - Staff bookings from the previous round are removed from cachedBookings.
+ *  - Reserved seats (permanent or active temporary) are preserved.
+ *  - The seat grid DOM is wiped so no stale "selected" styling remains.
+ */
+function resetSeatSelections() {
+  // 1. Wipe only the staff bookings — keep reserved-seat placeholders.
+  //    cachedBookings keys are seat numbers; entries injected by reservations
+  //    carry the _reserved flag set in renderSeatGrid.
+  const cleaned = {};
+  Object.entries(cachedBookings).forEach(([seat, info]) => {
+    if (info && info._reserved) {
+      // This entry was injected locally for display; it will be re-applied by
+      // renderSeatGrid on the next render, so drop it here too.
+      // (reserved seats are re-read from cachedReservations, not cachedBookings)
+    }
+    // Drop every staff booking — we only keep nothing.
+    // The authoritative source is the server; refreshBookings() below will
+    // repopulate cachedBookings with whatever the server holds.
+  });
+  cachedBookings = cleaned; // now an empty object
+
+  // 2. Reset the seat grid DOM — remove every visual selection state.
+  //    Works even if the grid is currently hidden (the HTML still exists).
+  document.querySelectorAll('.seat-btn').forEach(btn => {
+    btn.classList.remove('seat-mine', 'seat-taken', 'seat-available', 'seat-disabled');
+    btn.classList.add('seat-disabled');
+    btn.disabled = true;
+    btn.onclick = null;
+    // Update label to neutral dash
+    const labelEl = btn.querySelector('.seat-label');
+    if (labelEl) labelEl.textContent = '—';
+  });
+
+  // 3. Re-fetch fresh data from the server so reserved seats are correctly
+  //    reflected on the very next renderSeatGrid call.
+  //    We do not await here — this runs in the background and the next
+  //    refreshDashboard() call (triggered by the state change) will use the
+  //    updated cachedBookings and cachedReservations.
+  refreshBookings().catch(err => console.error('resetSeatSelections: refreshBookings failed', err));
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN LOOP
 // ═══════════════════════════════════════════════════════════════
 
@@ -1228,6 +1309,23 @@ async function mainLoop() {
       }
     }
     if (state !== lastState) {
+      // BUG 2 FIX — When the round ends and a new countdown begins, clear all
+      // per-round seat selections so stale highlights don't bleed into the next round.
+      //
+      // The transition we care about is:  results → before_open | reset | weekend
+      // (i.e. the system just finished showing results and is now counting down again).
+      // We also handle: open → before_open (test-mode scenario where admin
+      // closes booking without going through the results phase).
+      const justStartedNewCycle =
+        (state === 'before_open' || state === 'reset' || state === 'weekend') &&
+        (lastState === 'results' || lastState === 'open' || lastState === 'reset');
+
+      if (justStartedNewCycle) {
+        // Clear stale selections BEFORE updating lastState / calling refreshDashboard
+        // so the clean state is in place when the dashboard re-renders.
+        resetSeatSelections();
+      }
+
       lastState = state;
       refreshDashboard();
     } else if (state === 'open' && now.getSeconds() % 5 === 0) {
@@ -1255,8 +1353,51 @@ document.addEventListener('keydown', e => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// BUG 1 FIX — SESSION RESTORE ON PAGE LOAD
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Restores a previously saved login session.
+ * Called once on page load. If localStorage holds a valid user object,
+ * we set currentUser and go straight to afterLogin() — skipping the
+ * login page entirely, exactly as if the user had just logged in.
+ *
+ * @param {object} user - The plain object read from localStorage
+ */
+async function restoreSession(user) {
+  // Rehydrate the in-memory state from the stored snapshot.
+  currentUser = user;
+
+  if (currentUser.mustChangePw) {
+    // Edge-case: user refreshed while on the change-password screen.
+    showPage('page-change-password');
+    return;
+  }
+
+  await afterLogin();
+}
+
+// ═══════════════════════════════════════════════════════════════
 // INITIALIZATION
 // ═══════════════════════════════════════════════════════════════
 
 setInterval(mainLoop, 1000);
 mainLoop();
+
+// BUG 1 FIX — Attempt to restore a saved session on every page load.
+// If no session is found the app stays on the login page (default behaviour).
+(function initSession() {
+  try {
+    const raw = localStorage.getItem('cobranet_user');
+    if (raw) {
+      const saved = JSON.parse(raw);
+      // Basic sanity-check: the object must have at least a name and role.
+      if (saved && saved.name && saved.role) {
+        restoreSession(saved);
+      }
+    }
+  } catch (e) {
+    // Corrupt storage entry — silently ignore and stay on login page.
+    localStorage.removeItem('cobranet_user');
+  }
+}());
