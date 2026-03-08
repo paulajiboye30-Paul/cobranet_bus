@@ -1229,57 +1229,52 @@ function switchTab(id, btn) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// BUG 2 FIX — SEAT RESET BETWEEN ROUNDS
+// CYCLE RESET — SEAT SELECTIONS & FRONTEND CACHE
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Clears all temporary (per-round) seat selections from the UI and from the
- * in-memory booking cache, then re-applies only the permanently/temporarily
- * reserved seats that are still active in the database.
+ * Clears all per-round seat state from the frontend.
  *
- * Called whenever the system transitions INTO a new countdown cycle
- * (i.e. state changes TO before_open or reset).
+ * Called AFTER the backend has already cleared today's bookings from MongoDB
+ * (via POST /api/resetBookings).  The caller is responsible for fetching
+ * fresh data from the server; this function only handles local state.
  *
- * Rules:
- *  - Staff bookings from the previous round are removed from cachedBookings.
- *  - Reserved seats (permanent or active temporary) are preserved.
- *  - The seat grid DOM is wiped so no stale "selected" styling remains.
+ * What is cleared:
+ *   - cachedBookings: wiped to empty object (server authoritative copy will
+ *     be loaded by the next refreshDashboard → refreshBookings call)
+ *
+ * What is NOT cleared:
+ *   - cachedReservations: permanent/temporary reserved seats must survive
+ *     across cycles — they are re-applied by renderSeatGrid on next render
+ *
+ * DOM reset:
+ *   - Every .seat-btn is returned to neutral "—" / disabled state so no
+ *     seat from the previous round remains highlighted when the grid is
+ *     next rendered by refreshDashboard()
  */
 function resetSeatSelections() {
-  // 1. Wipe only the staff bookings — keep reserved-seat placeholders.
-  //    cachedBookings keys are seat numbers; entries injected by reservations
-  //    carry the _reserved flag set in renderSeatGrid.
-  const cleaned = {};
-  Object.entries(cachedBookings).forEach(([seat, info]) => {
-    if (info && info._reserved) {
-      // This entry was injected locally for display; it will be re-applied by
-      // renderSeatGrid on the next render, so drop it here too.
-      // (reserved seats are re-read from cachedReservations, not cachedBookings)
-    }
-    // Drop every staff booking — we only keep nothing.
-    // The authoritative source is the server; refreshBookings() below will
-    // repopulate cachedBookings with whatever the server holds.
-  });
-  cachedBookings = cleaned; // now an empty object
+  // 1. Wipe the in-memory booking cache.
+  //    Reserved-seat placeholders (_reserved flag) live in cachedReservations,
+  //    not in cachedBookings, so clearing cachedBookings is safe and complete.
+  cachedBookings = {};
 
-  // 2. Reset the seat grid DOM — remove every visual selection state.
-  //    Works even if the grid is currently hidden (the HTML still exists).
+  // 2. Reset every seat button in the DOM to a neutral disabled state.
+  //    This removes seat-mine / seat-taken / seat-available classes immediately
+  //    so the user never sees stale highlights while the next refreshDashboard
+  //    fetch is in-flight.
   document.querySelectorAll('.seat-btn').forEach(btn => {
     btn.classList.remove('seat-mine', 'seat-taken', 'seat-available', 'seat-disabled');
     btn.classList.add('seat-disabled');
     btn.disabled = true;
     btn.onclick = null;
-    // Update label to neutral dash
     const labelEl = btn.querySelector('.seat-label');
     if (labelEl) labelEl.textContent = '—';
   });
 
-  // 3. Re-fetch fresh data from the server so reserved seats are correctly
-  //    reflected on the very next renderSeatGrid call.
-  //    We do not await here — this runs in the background and the next
-  //    refreshDashboard() call (triggered by the state change) will use the
-  //    updated cachedBookings and cachedReservations.
-  refreshBookings().catch(err => console.error('resetSeatSelections: refreshBookings failed', err));
+  // NOTE: No refreshBookings() call here.
+  // The caller (mainLoop justStartedNewCycle block) awaits the backend reset
+  // and then calls refreshDashboard() which triggers refreshBookings() itself.
+  // A background fetch here would race against that and could restore stale data.
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1287,6 +1282,21 @@ function resetSeatSelections() {
 // ═══════════════════════════════════════════════════════════════
 
 let lastState = null;
+
+/**
+ * Guards the cycle-reset sequence in mainLoop.
+ *
+ * Problem it solves: mainLoop fires every 1 second via setInterval.
+ * The backend reset (POST /api/resetBookings) is an async network call that
+ * can take several hundred milliseconds.  Without this guard, multiple ticks
+ * could all detect the same state transition and each fire a reset, resulting
+ * in redundant API calls and — worse — a race where refreshDashboard() in
+ * tick N restores stale data while tick N+1 is still mid-reset.
+ *
+ * When true: a reset is already in-flight.  mainLoop skips both the
+ * cycle-reset branch and the normal refreshDashboard call for that tick.
+ */
+let isResettingCycle = false;
 
 async function mainLoop() {
   const now = new Date();
@@ -1309,25 +1319,101 @@ async function mainLoop() {
       }
     }
     if (state !== lastState) {
-      // BUG 2 FIX — When the round ends and a new countdown begins, clear all
-      // per-round seat selections so stale highlights don't bleed into the next round.
+      // ── Detect a genuine new booking cycle ────────────────────────────────
       //
-      // The transition we care about is:  results → before_open | reset | weekend
-      // (i.e. the system just finished showing results and is now counting down again).
-      // We also handle: open → before_open (test-mode scenario where admin
-      // closes booking without going through the results phase).
+      // A new cycle begins when the system leaves an "active" phase
+      // (results or open) and enters a waiting phase (before_open / reset /
+      // weekend).  This covers two real scenarios:
+      //
+      //   REAL MODE:  results (5:00–5:20 PM) → reset (5:20 PM same day)
+      //               reset (overnight)       → before_open (next day 4:50 PM)
+      //               results                 → weekend (Friday 5:20 PM)
+      //
+      //   TEST MODE:  Admin clicks "Booking Closed" after open or results,
+      //               which maps to:  open → before_open  or  results → before_open
+      //
+      // Why lastState === 'reset' is included on the right side:
+      //   In real mode the sequence is results→reset→before_open across two
+      //   separate days.  The results→reset transition fires the first reset
+      //   (harmless if MongoDB has no docs for the new date yet).  The
+      //   reset→before_open on the next calendar day fires a second reset
+      //   which again only touches the current date key (still no-op if the
+      //   previous reset already ran).  Double-calling resetBookings is safe
+      //   because deleteMany on an already-empty set returns deletedCount:0.
+
       const justStartedNewCycle =
         (state === 'before_open' || state === 'reset' || state === 'weekend') &&
         (lastState === 'results' || lastState === 'open' || lastState === 'reset');
 
-      if (justStartedNewCycle) {
-        // Clear stale selections BEFORE updating lastState / calling refreshDashboard
-        // so the clean state is in place when the dashboard re-renders.
-        resetSeatSelections();
+      // Update lastState BEFORE the async block so that subsequent mainLoop
+      // ticks (every 1 s) see the new state and do not re-enter this branch.
+      lastState = state;
+
+      if (justStartedNewCycle && !isResettingCycle) {
+        // ── Async cycle-reset sequence ───────────────────────────────────────
+        //
+        // Execution order matters:
+        //   1. Backend reset   — clears MongoDB so the next GET /api/seats
+        //                        returns an empty bookings object.
+        //   2. Frontend reset  — wipes cachedBookings and the seat-grid DOM.
+        //   3. refreshDashboard — fetches fresh (empty) data from the server
+        //                         and re-renders the countdown / grid.
+        //
+        // If we reversed steps 1 and 3, refreshDashboard would re-fetch the
+        // old bookings from MongoDB before they were deleted, undoing the
+        // visual reset.  This is the root cause of the original bug.
+
+        isResettingCycle = true;
+
+        (async () => {
+          try {
+            // STEP 1 — Tell MongoDB to delete today's bookings.
+            //
+            // Why today's date is safe for history:
+            //   The bookings collection uses a YYYY-MM-DD date field.
+            //   resetBookings only deletes documents where date = today.
+            //   In real mode the next cycle always starts on the NEXT calendar
+            //   day, so by definition there are no docs yet for that date and
+            //   the delete is a no-op.  Previous days' documents (= history)
+            //   are untouched.
+            //   In test mode you may run multiple cycles on the same day;
+            //   those test bookings are intentionally cleared.
+            const resetResult = await apiRequest('/resetBookings', 'POST');
+
+            if (!resetResult.success) {
+              // Non-fatal: log the issue but continue with the frontend reset.
+              // A stale-data render is better than a frozen UI.
+              console.warn('resetBookings API returned failure:', resetResult.message);
+            }
+          } catch (err) {
+            // Network / server error — log and continue.
+            console.error('Cycle reset: backend call failed:', err);
+          }
+
+          // STEP 2 — Wipe cachedBookings and reset every seat button in the DOM.
+          //          This runs regardless of whether the backend call succeeded
+          //          so the UI is never left in a permanently broken state.
+          resetSeatSelections();
+
+          // STEP 3 — Re-fetch all data (seats, reservations, testMode) from
+          //          the server and re-render the dashboard with clean data.
+          //          refreshDashboard → refreshBookings → GET /api/seats
+          //          Because MongoDB was just cleared, cachedBookings will be
+          //          repopulated with an empty object (or only reserved seats).
+          await refreshDashboard();
+
+          isResettingCycle = false;
+        })();
+
+        // Return early — dashboard will be rendered inside the IIFE above.
+        return;
       }
 
-      lastState = state;
-      refreshDashboard();
+      // Normal (non-reset) state change — just refresh the dashboard.
+      if (!isResettingCycle) {
+        refreshDashboard();
+      }
+
     } else if (state === 'open' && now.getSeconds() % 5 === 0) {
       refreshDashboard();
     }
