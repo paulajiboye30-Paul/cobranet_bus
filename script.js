@@ -1350,62 +1350,43 @@ async function mainLoop() {
       lastState = state;
 
       if (justStartedNewCycle && !isResettingCycle) {
-        // ── Async cycle-reset sequence ───────────────────────────────────────
-        //
-        // Execution order matters:
-        //   1. Backend reset   — clears MongoDB so the next GET /api/seats
-        //                        returns an empty bookings object.
-        //   2. Frontend reset  — wipes cachedBookings and the seat-grid DOM.
-        //   3. refreshDashboard — fetches fresh (empty) data from the server
-        //                         and re-renders the countdown / grid.
-        //
-        // If we reversed steps 1 and 3, refreshDashboard would re-fetch the
-        // old bookings from MongoDB before they were deleted, undoing the
-        // visual reset.  This is the root cause of the original bug.
+        // ── Cycle Reset Sequence ────────────────────────────────────────────
+        // CRITICAL FIX: Backend must be cleared BEFORE frontend to prevent
+        // race condition where refreshDashboard() reloads stale bookings.
+        // Sequence: 1) Backend reset → 2) Frontend clear → 3) Dashboard refresh
 
         isResettingCycle = true;
 
         (async () => {
           try {
-            // STEP 1 — Tell MongoDB to delete today's bookings.
-            //
-            // Why today's date is safe for history:
-            //   The bookings collection uses a YYYY-MM-DD date field.
-            //   resetBookings only deletes documents where date = today.
-            //   In real mode the next cycle always starts on the NEXT calendar
-            //   day, so by definition there are no docs yet for that date and
-            //   the delete is a no-op.  Previous days' documents (= history)
-            //   are untouched.
-            //   In test mode you may run multiple cycles on the same day;
-            //   those test bookings are intentionally cleared.
+            // STEP 1: Clear backend - delete today's bookings from MongoDB
             const resetResult = await apiRequest('/resetBookings', 'POST');
 
             if (!resetResult.success) {
-              // Non-fatal: log the issue but continue with the frontend reset.
-              // A stale-data render is better than a frozen UI.
               console.warn('resetBookings API returned failure:', resetResult.message);
+            } else {
+              console.log('Cycle reset: Backend cleared successfully');
             }
           } catch (err) {
-            // Network / server error — log and continue.
-            console.error('Cycle reset: backend call failed:', err);
+            console.error('Cycle reset: Backend call failed:', err);
           }
 
-          // STEP 2 — Wipe cachedBookings and reset every seat button in the DOM.
-          //          This runs regardless of whether the backend call succeeded
-          //          so the UI is never left in a permanently broken state.
+          // STEP 2: Clear frontend cache and DOM
           resetSeatSelections();
 
-          // STEP 3 — Re-fetch all data (seats, reservations, testMode) from
-          //          the server and re-render the dashboard with clean data.
-          //          refreshDashboard → refreshBookings → GET /api/seats
-          //          Because MongoDB was just cleared, cachedBookings will be
-          //          repopulated with an empty object (or only reserved seats).
-          await refreshDashboard();
+          // STEP 3: Refresh dashboard with clean data from server
+          try {
+            await refreshDashboard();
+            console.log('Cycle reset: Dashboard refreshed');
+          } catch (refreshErr) {
+            console.error('Cycle reset: Dashboard refresh failed:', refreshErr);
+          }
 
+          // CRITICAL: Always reset flag to prevent deadlock
           isResettingCycle = false;
         })();
 
-        // Return early — dashboard will be rendered inside the IIFE above.
+        // Return early - async block above handles dashboard refresh
         return;
       }
 
