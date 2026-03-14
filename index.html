@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<link rel="stylesheet" href="style.css"/>
+<link rel="stylesheet" href="/style.css"/>
 </head>
 <body>
 
@@ -15,7 +15,7 @@
 <div id="page-login" class="page active">
   <div class="login-box">
     <div class="login-logo-wrap">
-      <div class="login-logo">CL</div>
+      <img src="/Cobranet Logo.png" alt="Cobranet Logo" class="cobranet-logo"/>
       <div class="login-company">Cobranet Limited</div>
       <div class="login-subtitle">Staff Bus Seat Booking System</div>
     </div>
@@ -57,7 +57,7 @@
   </div>
 </div>
 
-<!-- ═══ DASHBOARD ═══ -->
+<!-- ═══ STAFF DASHBOARD ═══ -->
 <div id="page-dashboard" class="page">
   <nav class="topnav">
     <div class="topnav-brand">
@@ -78,12 +78,10 @@
       <h1>Seat Selection</h1>
       <p>Select one seat for today's staff bus. One seat per staff member only.</p>
     </div>
-
     <div id="status-banner" class="status-banner banner-closed">
       <div class="banner-dot dot-red" id="banner-dot"></div>
       <span id="banner-text">Loading…</span>
     </div>
-
     <div id="countdown-section" class="card hidden">
       <div class="card-body countdown-wrap">
         <div class="countdown-label">Seat booking opens in</div>
@@ -91,7 +89,6 @@
         <div class="countdown-sub" id="countdown-sub"></div>
       </div>
     </div>
-
     <div id="my-booking-card" class="my-booking hidden">
       <div class="my-booking-seat" id="my-booking-num">–</div>
       <div class="my-booking-text">
@@ -100,7 +97,6 @@
         <div style="margin-top:.4rem;"><button class="btn btn-outline btn-sm" onclick="changeMyBooking()">Change Seat</button></div>
       </div>
     </div>
-
     <div id="seat-section" class="card hidden">
       <div class="card-header">
         <span class="card-title">🚌 Bus Seat Map — 30 Seats</span>
@@ -115,17 +111,9 @@
         <div class="seat-grid" id="seat-grid"></div>
       </div>
     </div>
-
     <div id="results-section" class="card hidden">
-      <div id="results-date-bar" class="results-date-heading">
-        <span>📋</span>
-        <div>
-          <div class="rdate-label">Bus Seat Arrangement</div>
-          <div class="rdate-val" id="results-date-text">—</div>
-        </div>
-      </div>
-      <div class="card-header" style="border-radius:0;">
-        <span class="card-title">Seat Assignments</span>
+      <div class="card-header">
+        <span class="card-title">📋 Today's Bus Seat Assignments</span>
         <span class="text-sm text-muted" id="results-count"></span>
       </div>
       <div class="card-body" style="padding:0;">
@@ -162,10 +150,8 @@
       <h1>Admin Dashboard</h1>
       <p>Manage staff, bookings, and testing controls.</p>
     </div>
-
     <div class="stats-row" id="admin-stats"></div>
 
-    <!-- Testing Mode Panel -->
     <div class="test-panel">
       <div class="test-panel-title">⚙ Testing Mode Controls</div>
       <div class="test-controls">
@@ -178,22 +164,17 @@
           <span class="test-state-val" id="test-state-val">—</span>
         </div>
       </div>
-      <p class="test-note">
-        Testing mode lets you instantly simulate any booking phase — open, results, or closed — without waiting for the real schedule.
-        Disable to re-sync with the live 4:50–5:00 PM window. Bookings made during testing are real and persist.
-      </p>
+      <p class="test-note">Testing mode lets you instantly simulate any booking phase without waiting for the real schedule. Disable to re-sync with the live 4:50–5:00 PM window.</p>
     </div>
 
-    <!-- Tabs -->
     <div class="tab-nav">
       <button class="tab-btn active" onclick="switchTab('tab-users',this)">👥 Staff Users</button>
       <button class="tab-btn" onclick="switchTab('tab-bookings',this)">🎫 Today's Bookings</button>
       <button class="tab-btn" onclick="switchTab('tab-history',this)">📜 History</button>
-      <button class="tab-btn" onclick="switchTab('tab-reservations',this)">🔒 Seat Reservations</button>
       <button class="tab-btn" onclick="switchTab('tab-settings',this)">⚙️ Settings</button>
     </div>
 
-    <!-- USERS -->
+    <!-- USERS TAB -->
     <div class="tab-pane active" id="tab-users">
       <div class="card">
         <div class="card-header">
@@ -211,7 +192,7 @@
       </div>
     </div>
 
-    <!-- BOOKINGS -->
+    <!-- BOOKINGS TAB -->
     <div class="tab-pane" id="tab-bookings">
       <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:1rem;">
         <button class="btn btn-danger btn-sm" onclick="confirmResetBookings()">🔄 Reset Today's Bookings</button>
@@ -231,7 +212,7 @@
       </div>
     </div>
 
-    <!-- HISTORY -->
+    <!-- HISTORY TAB -->
     <div class="tab-pane" id="tab-history">
       <div class="card">
         <div class="card-header"><span class="card-title">Full Booking History</span></div>
@@ -246,48 +227,7 @@
       </div>
     </div>
 
-    <!-- RESERVATIONS -->
-    <div class="tab-pane" id="tab-reservations">
-      <div class="res-panel">
-        <div class="res-panel-title">🔒 Reserve a Seat</div>
-        <div class="res-form-row">
-          <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" style="color:rgba(255,255,255,.7);">Seat Number</label>
-            <select class="form-input" id="res-seat-num" style="background:#1a1a1a;color:#fff;border-color:#333;"></select>
-          </div>
-          <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" style="color:rgba(255,255,255,.7);">Label / Name</label>
-            <input class="form-input" id="res-label" type="text" placeholder="e.g. Driver, Admin" style="background:#1a1a1a;color:#fff;border-color:#333;"/>
-          </div>
-          <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" style="color:rgba(255,255,255,.7);">Type</label>
-            <select class="form-input" id="res-type" onchange="toggleResDays()" style="background:#1a1a1a;color:#fff;border-color:#333;">
-              <option value="permanent">Permanent</option>
-              <option value="temporary">Temporary (X days)</option>
-            </select>
-          </div>
-          <div class="form-group" id="res-days-group" style="margin-bottom:0;display:none;">
-            <label class="form-label" style="color:rgba(255,255,255,.7);">Duration (days)</label>
-            <input class="form-input" id="res-days" type="number" min="1" max="365" value="1" style="background:#1a1a1a;color:#fff;border-color:#333;"/>
-          </div>
-        </div>
-        <div id="res-error" style="color:var(--red);font-size:.78rem;margin-bottom:.5rem;display:none;"></div>
-        <button class="btn btn-primary btn-sm" onclick="addReservation()">+ Reserve Seat</button>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">Current Seat Reservations</span>
-          <span class="text-sm text-muted" id="res-count"></span>
-        </div>
-        <div class="card-body" style="padding:.75rem 1rem;" id="res-list-wrap">
-          <div class="empty-state" id="res-empty">No seat reservations configured.</div>
-          <div id="res-list"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- SETTINGS -->
+    <!-- SETTINGS TAB -->
     <div class="tab-pane" id="tab-settings">
       <div class="card">
         <div class="card-header"><span class="card-title">System Settings</span></div>
@@ -331,6 +271,6 @@
 </div>
 <div id="toast-container"></div>
 
-<script src="script.js"></script>
+<script src="/script.js"></script>
 </body>
 </html>
