@@ -1,76 +1,37 @@
 {
   "version": 2,
-  "name": "cobranet-bus-booking",
   "builds": [
     {
-      "src": "api/**/*.js",
+      "src": "server.js",
       "use": "@vercel/node"
-    },
+    }
+  ],
+  "crons": [
     {
-      "src": "index.html",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "style.css",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "script.js",
-      "use": "@vercel/static"
+      "path": "/api/cron/midnight-reset",
+      "schedule": "0 0 * * *"
     }
   ],
   "routes": [
     {
-      "src": "/api/login",
-      "dest": "/api/login.js"
-    },
-    {
-      "src": "/api/bookSeat",
-      "dest": "/api/bookSeat.js"
-    },
-    {
-      "src": "/api/changePassword",
-      "dest": "/api/changePassword.js"
-    },
-    {
-      "src": "/api/seats",
-      "dest": "/api/seats.js"
-    },
-    {
-      "src": "/api/staff",
-      "dest": "/api/staff.js"
-    },
-    {
-      "src": "/api/settings",
-      "dest": "/api/settings.js"
-    },
-    {
-      "src": "/api/reservations",
-      "dest": "/api/reservations.js"
-    },
-    {
-      "src": "/api/testMode",
-      "dest": "/api/testMode.js"
-    },
-    {
-      "src": "/api/resetBookings",
-      "dest": "/api/resetBookings.js"
-    },
-    {
-      "src": "/api/history",
-      "dest": "/api/history.js"
-    },
-    {
       "src": "/style.css",
-      "dest": "/style.css"
+      "dest": "/server.js"
     },
     {
       "src": "/script.js",
-      "dest": "/script.js"
+      "dest": "/server.js"
+    },
+    {
+      "src": "/seat-colors.css",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "/server.js"
     },
     {
       "src": "/(.*)",
-      "dest": "/index.html"
+      "dest": "/server.js"
     }
   ]
 }

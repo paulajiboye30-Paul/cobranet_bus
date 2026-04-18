@@ -1,0 +1,57 @@
+/*
+ * seat-colors.css
+ * ───────────────────────────────────────────────────────────────
+ * Three-state seat color system.
+ *
+ * FREE   — .seat-available           background: #22c55e (green)
+ * TAKEN  — .seat-taken               background: #ef4444 (red)
+ *          .seat-reserved-permanent  background: #ef4444 (red)
+ *          .seat-reserved-temporary  background: #ef4444 (red)
+ * YOURS  — .seat-mine                background: #f97316 (orange)
+ *
+ * All three reserved states (staff booking, permanent admin
+ * reservation, temporary admin reservation) render identically
+ * as TAKEN / RED. No visual distinction between them in the UI.
+ *
+ * These classes are applied in renderSeatGrid() inside script.js.
+ */
+
+/* ── FREE — GREEN ────────────────────────────────────────────── */
+.seat-available {
+  background:   #22c55e;
+  border-color: #16a34a;
+  color:        #fff;
+  cursor:       pointer;
+}
+
+/* ── TAKEN — RED (staff booking) ───────────────────────────── */
+.seat-taken {
+  background:   #ef4444;
+  border-color: #dc2626;
+  color:        #fff;
+  cursor:       not-allowed;
+}
+
+/* ── TAKEN — RED (permanent admin reservation) ─────────────── */
+.seat-reserved-permanent {
+  background:   #ef4444;
+  border-color: #dc2626;
+  color:        #fff;
+  cursor:       not-allowed;
+}
+
+/* ── TAKEN — RED (active temporary admin reservation) ─────── */
+.seat-reserved-temporary {
+  background:   #ef4444;
+  border-color: #dc2626;
+  color:        #fff;
+  cursor:       not-allowed;
+}
+
+/* ── YOURS — ORANGE ─────────────────────────────────────────── */
+.seat-mine {
+  background:   #f97316;
+  border-color: #ea580c;
+  color:        #fff;
+  cursor:       default;
+}
