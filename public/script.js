@@ -40,11 +40,6 @@ let cachedReservations = [];
 let cachedUsers      = [];
 let cachedHistory    = [];
 
-// ── Force-logout: sessionVersion ─────────────────────────────────────
-// Stored at login. Compared against GET /api/seats response on every poll.
-// Mismatch → immediate doLogout() without deleting any data.
-let cachedSessionVersion = null;
-
 // ═══════════════════════════════════════════════════════════════
 // API HELPER
 // ═══════════════════════════════════════════════════════════════
@@ -86,11 +81,6 @@ async function doLogin() {
       currentUser = data.user;
 
       // Persist session so refresh does not log the user out
-      // Store sessionVersion alongside user for force-logout detection
-      if (data.sessionVersion != null) {
-        cachedSessionVersion = data.sessionVersion;
-      }
-
       localStorage.setItem('cobranet_user', JSON.stringify({
         _id:            currentUser._id,
         id:             currentUser._id,
@@ -99,7 +89,7 @@ async function doLogin() {
         department:     currentUser.department || '',
         role:           currentUser.role,
         mustChangePw:   currentUser.mustChangePw || false,
-        sessionVersion: cachedSessionVersion
+        sessionVersion: currentUser.sessionVersion || 1
       }));
 
       document.getElementById('login-error').classList.add('hidden');
@@ -199,13 +189,14 @@ async function doChangePassword() {
 
       // Refresh stored session with cleared mustChangePw flag
       localStorage.setItem('cobranet_user', JSON.stringify({
-        _id:          currentUser._id,
-        id:           currentUser._id,
-        name:         currentUser.name,
-        username:     currentUser.username,
-        department:   currentUser.department || '',
-        role:         currentUser.role,
-        mustChangePw: false
+        _id:            currentUser._id,
+        id:             currentUser._id,
+        name:           currentUser.name,
+        username:       currentUser.username,
+        department:     currentUser.department || '',
+        role:           currentUser.role,
+        mustChangePw:   false,
+        sessionVersion: currentUser.sessionVersion || 1
       }));
 
       err.classList.add('hidden');
@@ -235,12 +226,6 @@ async function loadAllData() {
       cachedBookings     = seatsData.bookings     || {};
       cachedReservations = seatsData.reservations || [];
       cachedSettings     = seatsData.settings     || cachedSettings;
-
-      // ── Force-logout check ──────────────────────────────────────────
-      // On initial load we accept whatever the server says.
-      if (cachedSessionVersion === null && seatsData.sessionVersion != null) {
-        cachedSessionVersion = seatsData.sessionVersion;
-      }
     }
 
     if (currentUser?.role === 'admin') {
@@ -263,22 +248,22 @@ async function refreshBookings() {
       cachedReservations = seatsData.reservations || [];
       cachedSettings     = seatsData.settings     || cachedSettings;
 
-      // ── Force-logout check on every poll ───────────────────────────
-      // POST /api/forceLogoutAll increments sessionVersion on the server.
-      // The next poll (≤1 s) detects the mismatch and logs the user out
-      // immediately — no data is deleted.
-      if (
-        seatsData.sessionVersion != null &&
-        cachedSessionVersion     != null &&
-        seatsData.sessionVersion !== cachedSessionVersion
-      ) {
-        console.warn('[session] sessionVersion mismatch — forcing logout');
-        doLogout();
-        return;
-      }
-      // First-time initialisation after login data was already set
-      if (cachedSessionVersion === null && seatsData.sessionVersion != null) {
-        cachedSessionVersion = seatsData.sessionVersion;
+      // ── Session version check (forced-logout detection) ──────────────
+      // If an admin has called POST /api/forceLogoutAll, the server increments
+      // session_version.  We compare it against the value stored at login.
+      // A mismatch means this session is no longer valid → log out immediately.
+      const serverVersion = seatsData.settings && seatsData.settings.sessionVersion;
+      if (serverVersion && currentUser) {
+        const stored = parseInt(
+          (JSON.parse(localStorage.getItem('cobranet_user') || '{}').sessionVersion) || 1,
+          10
+        );
+        if (serverVersion > stored) {
+          console.warn('[session] Version mismatch — forcing logout. Server:', serverVersion, 'Stored:', stored);
+          doLogout();
+          showToast('⚠️ Your session has been ended by an administrator. Please log in again.', 'error');
+          return;
+        }
       }
     }
   } catch (err) {
@@ -308,9 +293,9 @@ function goToDashboard() {
 /**
  * Returns: 'before_open' | 'open' | 'results' | 'reset' | 'weekend'
  *
- * NOTE: This function drives the UI display only (countdown, banners, seat grid).
- * The actual booking window is enforced server-side in POST /api/bookSeat using
- * the NTP-synchronised server clock. Device time cannot bypass the server check.
+ * Booking is allowed ONLY when:
+ *   current_time >= booking_start_time  AND  current_time <= booking_end_time
+ * (from system_settings table — admin-configurable, no simulation override)
  */
 function getSystemState() {
   const now = new Date();
@@ -377,7 +362,8 @@ async function refreshDashboard() {
   const bk    = cachedBookings;
   const s     = cachedSettings;
 
-  ['countdown-section', 'seat-section', 'results-section', 'my-booking-card']
+  ['countdown-section', 'seat-section', 'results-section',
+   'my-booking-card', 'verification-section', 'grace-section']
     .forEach(id => document.getElementById(id).classList.add('hidden'));
 
   const banner = document.getElementById('status-banner');
@@ -477,6 +463,36 @@ function getActiveReservedSeats() {
     .map(r => String(r.seat));
 }
 
+// ═══════════════════════════════════════════════════════════════
+// CENTRALISED SEAT DISPLAY STATUS  (Issue 1)
+//
+// Returns exactly one of:  'FREE' | 'TAKEN' | 'YOURS'
+//
+//   FREE  — seat has no booking and no active reservation
+//   TAKEN — seat is booked by another staff OR held by an admin reservation
+//   YOURS — seat belongs to the currently-logged-in user
+//
+// All seat-rendering code must use this function. The internal
+// reservation types ('permanent', 'temporary') and their DB labels
+// ('RSVD', 'TEMP', 'RESERVED', etc.) must never surface in the UI.
+// ═══════════════════════════════════════════════════════════════
+function getSeatDisplayStatus(seatNum, bk, currentUsername) {
+  const sNum         = String(seatNum);
+  const reservedSeats = getActiveReservedSeats();
+
+  // Current user's own confirmed booking
+  if (bk[sNum] && bk[sNum].username === (currentUsername || '').toLowerCase()) {
+    return 'YOURS';
+  }
+
+  // Booked by another staff member OR held by an admin reservation
+  if (bk[sNum] || reservedSeats.includes(sNum)) {
+    return 'TAKEN';
+  }
+
+  return 'FREE';
+}
+
 function renderSeatGrid(bk, total, interactive) {
   const grid = document.getElementById('seat-grid');
   grid.innerHTML = '';
@@ -500,17 +516,17 @@ function renderSeatGrid(bk, total, interactive) {
       btn.disabled  = true;
 
     } else if (isReserved) {
-      // ── Reserved seat — style by type ─────────────────────────────
+      // ── Reserved seat — admin-reserved, shows as TAKEN ────────────
+      // Visual colour (red vs orange) distinguishes permanent vs temporary
+      // for admin awareness, but the label is always TAKEN per spec.
       btn.disabled = true;
 
       if (reservation?.type === 'permanent') {
-        // Red — permanent reservation
         btn.classList.add('seat-reserved-permanent');
-        btn.innerHTML = `<span class="seat-num">${i}</span><span class="seat-label">RSVD</span>`;
+        btn.innerHTML = `<span class="seat-num">${i}</span><span class="seat-label">TAKEN</span>`;
       } else {
-        // Orange — active temporary reservation
         btn.classList.add('seat-reserved-temporary');
-        btn.innerHTML = `<span class="seat-num">${i}</span><span class="seat-label">TEMP</span>`;
+        btn.innerHTML = `<span class="seat-num">${i}</span><span class="seat-label">TAKEN</span>`;
       }
 
     } else if (bk[sNum]) {
@@ -538,22 +554,12 @@ function renderSeatGrid(bk, total, interactive) {
 
 async function selectSeat(num) {
   if (!currentUser) return;
+  // Note: client-side state check is for UX only (hides the button).
+  // The real enforcement is server-side in POST /api/bookSeat.
   if (getSystemState() !== 'open') {
     showToast('Seat booking is not open right now.', 'error');
     return;
   }
-
-  // ── ONE SEAT PER STAFF (spec §1 / §5) ─────────────────────────────────
-  // The DB enforces this with a UNIQUE (staff_id, booking_date) constraint,
-  // but we also block it client-side for immediate feedback.
-  // Staff must click "Change Seat" to release their current seat first.
-  const alreadyHasSeat = Object.entries(cachedBookings)
-    .some(([, v]) => v.username === currentUser.username);
-  if (alreadyHasSeat) {
-    showToast('You can only reserve one seat. Use "Change Seat" to switch.', 'error');
-    return;
-  }
-  // ──────────────────────────────────────────────────────────────────────
 
   const sNum          = String(num);
   const reservedSeats = getActiveReservedSeats();
@@ -583,10 +589,12 @@ async function selectSeat(num) {
       showToast('✅ Seat ' + num + ' reserved!', 'success');
       refreshDashboard();
     } else {
+      // Show the server's message verbatim — it may contain the authoritative
+      // window time (e.g. "Booking window has not opened yet. Opens at 07:00").
       showToast(data.message || 'Failed to book seat.', 'error');
       refreshDashboard();
     }
-  } catch {
+  } catch (err) {
     showToast('Network error. Please try again.', 'error');
   }
 }
@@ -597,36 +605,10 @@ async function changeMyBooking() {
     return;
   }
 
-  // Find this user's current booking in the cache
   const prev = Object.entries(cachedBookings)
     .find(([, v]) => v.username === currentUser.username);
 
-  if (!prev) {
-    // Nothing to release — just refresh
-    refreshDashboard();
-    return;
-  }
-
-  try {
-    // Tell the backend to delete this specific booking (seat + user + today)
-    const data = await apiRequest('/bookSeat', 'DELETE', {
-      seatNumber: prev[0],
-      userId:     currentUser._id,
-      username:   currentUser.username
-    });
-
-    // Whether or not the API supports DELETE (older deployments may not),
-    // always clear the cache entry so the UI unlocks immediately.
-    if (data && !data.success) {
-      console.warn('changeMyBooking: backend delete returned failure —', data.message);
-    }
-  } catch (err) {
-    // Non-fatal: cache will be authoritative until next refresh
-    console.warn('changeMyBooking: backend delete failed —', err.message);
-  }
-
-  // Remove from local cache regardless of API outcome
-  delete cachedBookings[prev[0]];
+  if (prev) delete cachedBookings[prev[0]];
 
   showToast('Seat released — please select a new seat.', '');
   refreshDashboard();
@@ -649,23 +631,32 @@ function renderResultsTable(bk) {
   const dateEl = document.getElementById('results-date-text');
   if (dateEl) dateEl.textContent = formatResultsDate();
 
-  // Exclude reserved-seat placeholders from staff count
-  const entries = Object.entries(bk)
-    .filter(([, v]) => !v._reserved)
-    .sort((a, b) => Number(a[0]) - Number(b[0]));
+  // Sort all seats numerically
+  const allEntries = Object.entries(bk).sort((a, b) => Number(a[0]) - Number(b[0]));
 
-  document.getElementById('results-count').textContent = entries.length + ' staff booked';
+  // Staff count excludes reserved-seat placeholders (same logic as before)
+  const staffCount = allEntries.filter(([, v]) => !v._reserved).length;
+  document.getElementById('results-count').textContent = staffCount + ' staff booked';
+
   tbody.innerHTML = '';
 
-  if (!entries.length) {
+  if (!allEntries.length) {
     tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No bookings for today.</td></tr>';
     return;
   }
 
-  entries.forEach(([seat, info], idx) => {
+  // BUG 1 FIX: render ALL seats — confirmed bookings AND reserved seats.
+  // Previously .filter(([,v]) => !v._reserved) removed reserved seats so they
+  // never appeared on the Home Screen results table, even though they showed
+  // correctly in the admin Today's Seat Bookings tab (renderAdminBookings has
+  // no such filter). Reserved seats now render with the label (staff/role name)
+  // and booking start time returned by the API, matching the same data source
+  // as confirmed bookings — no RESERVED badge, no dash for time.
+  let rowIndex = 1;
+  allEntries.forEach(([seat, info]) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${idx + 1}</td>
+      <td>${rowIndex++}</td>
       <td><span class="badge badge-brand">Seat ${seat}</span></td>
       <td>${info.name}</td>
       <td>${info.time}</td>`;
@@ -808,31 +799,6 @@ async function saveSettings() {
       showToast('Settings saved.', 'success');
     } else {
       showToast(data.message || 'Failed to save settings.', 'error');
-    }
-  } catch {
-    showToast('Network error. Please try again.', 'error');
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// FORCE LOGOUT ALL — admin action
-// ═══════════════════════════════════════════════════════════════
-
-/**
- * Bumps sessionVersion on the server.
- * Every active client detects the mismatch on their next GET /api/seats
- * poll (≤1 second) and calls doLogout() automatically.
- * No user, booking, or history data is deleted.
- */
-async function forceLogoutAll() {
-  try {
-    const data = await apiRequest('/forceLogoutAll', 'POST', {
-      adminUsername: currentUser?.username || 'admin'
-    });
-    if (data.success) {
-      showToast('✅ All users have been logged out. They will be redirected to login on their next action.', 'success');
-    } else {
-      showToast(data.message || 'Failed to force logout.', 'error');
     }
   } catch {
     showToast('Network error. Please try again.', 'error');
@@ -1035,6 +1001,32 @@ function confirmResetBookings() {
               showToast("Today's bookings reset.", '');
             } else {
               showToast(data.message || 'Failed to reset.', 'error');
+            }
+          } catch {
+            showToast('Network error.', 'error');
+          }
+        }
+      }
+    ]
+  );
+}
+
+function confirmForceLogoutAll() {
+  openModal('Force Logout All Users',
+    `<p class="text-sm">This will immediately log out <strong>all active users</strong>. They will be prompted to log in again on their next page refresh.<br><br>No data will be deleted.</p>`,
+    [
+      { label: 'Cancel', cls: 'btn-secondary', fn: closeModal },
+      {
+        label: 'Force Logout All',
+        cls:   'btn-danger',
+        fn:    async () => {
+          try {
+            const data = await apiRequest('/forceLogoutAll', 'POST');
+            if (data.success) {
+              closeModal();
+              showToast('✅ All sessions invalidated. Users will be logged out on next poll.', 'success');
+            } else {
+              showToast(data.message || 'Failed to force logout.', 'error');
             }
           } catch {
             showToast('Network error.', 'error');
@@ -1311,6 +1303,7 @@ function switchTab(id, btn) {
   if (id === 'tab-history')      renderHistory();
   if (id === 'tab-users')        renderUsersTable();
   if (id === 'tab-reservations') { populateResSeatSelect(); renderReservationsList(); }
+  if (id === 'tab-settings')     loadSettingsForm();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1336,6 +1329,196 @@ function resetSeatSelections() {
     const lbl = btn.querySelector('.seat-label');
     if (lbl) lbl.textContent = '—';
   });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VERIFICATION PHASE
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Tracks the verification workflow state independently of getSystemState().
+ * Values: 'BOOKING_OPEN' | 'VERIFYING' | 'GRACE_PERIOD' | 'RESULT_DISPLAYED'
+ */
+let systemStatus    = 'BOOKING_OPEN';
+let graceTimerEnd   = null;   // Date when the 2-minute grace period expires
+let graceInterval   = null;   // setInterval handle for the grace countdown display
+
+/**
+ * Calls POST /api/verifySeatAllocations, which runs duplicate-seat cleanup on
+ * the server and returns the number of seats released.
+ * Returns releasedCount (0 if no duplicates found).
+ */
+async function verifySeatAllocations() {
+  try {
+    const data = await apiRequest('/verifySeatAllocations', 'POST');
+    return data.success ? (data.releasedCount || 0) : 0;
+  } catch (err) {
+    console.error('verifySeatAllocations error:', err);
+    return 0;
+  }
+}
+
+/** Hide every dashboard section at once (helper used by verification flow) */
+function hideAllSections() {
+  ['countdown-section', 'seat-section', 'results-section',
+   'my-booking-card', 'verification-section', 'grace-section']
+    .forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.add('hidden');
+    });
+}
+
+/** Show the "Verifying…" loading screen */
+function showVerificationScreen() {
+  hideAllSections();
+  const banner = document.getElementById('status-banner');
+  const dot    = document.getElementById('banner-dot');
+  const txt    = document.getElementById('banner-text');
+  banner.className = 'status-banner banner-results';
+  dot.className    = 'banner-dot dot-brand';
+  txt.textContent  = '🔍 Verifying seat allocations — please wait…';
+  document.getElementById('verification-section').classList.remove('hidden');
+}
+
+/** Show the grace-period seat selection screen */
+function showGraceScreen() {
+  hideAllSections();
+  const banner = document.getElementById('status-banner');
+  const dot    = document.getElementById('banner-dot');
+  const txt    = document.getElementById('banner-text');
+  banner.className = 'status-banner banner-open';
+  dot.className    = 'banner-dot dot-green';
+  txt.textContent  = '🟢 Freed seats available — select yours before the timer runs out!';
+
+  // Only staff without a confirmed seat may pick during grace period
+  const mine = Object.entries(cachedBookings)
+    .find(([, v]) => !v._reserved && v.username === currentUser?.username);
+  const sub = document.getElementById('grace-sub');
+  if (mine) {
+    if (sub) sub.textContent = 'Your seat ' + mine[0] + ' is confirmed. No action needed.';
+  } else {
+    if (sub) sub.textContent = 'Some seats have been freed. Select an available seat below.';
+  }
+
+  // Render the seat grid inside the grace section
+  const grid = document.getElementById('grace-seat-grid');
+  if (grid) {
+    // Temporarily redirect seat-grid render into grace-seat-grid
+    const realGrid = document.getElementById('seat-grid');
+    const realGridParent = realGrid?.parentNode;
+    const placeholder = document.createComment('seat-grid-placeholder');
+    if (realGrid) {
+      realGrid.id = 'seat-grid';
+      realGridParent.replaceChild(placeholder, realGrid);
+    }
+    renderSeatGrid(cachedBookings, cachedSettings.totalSeats || 30,
+      !mine  // interactive only if staff has no seat yet
+    );
+    // Move rendered grid into the grace section
+    const rendered = document.getElementById('seat-grid');
+    if (rendered) grid.innerHTML = rendered.innerHTML;
+    // Restore original seat-grid
+    if (realGrid && placeholder.parentNode) {
+      placeholder.parentNode.replaceChild(realGrid, placeholder);
+    }
+
+    // Wire up click handlers on the grace grid buttons
+    grid.querySelectorAll('.seat-available').forEach(btn => {
+      const seatNum = parseInt(btn.querySelector('.seat-num')?.textContent, 10);
+      if (!isNaN(seatNum)) {
+        btn.onclick = async () => {
+          if (mine) {
+            showToast('You already have a seat confirmed.', 'error');
+            return;
+          }
+          btn.disabled = true;
+          await selectSeat(seatNum);
+        };
+      }
+    });
+  }
+
+  document.getElementById('grace-section').classList.remove('hidden');
+}
+
+/** Update the grace period countdown display every second */
+function tickGraceTimer() {
+  const el = document.getElementById('grace-timer');
+  if (!el || !graceTimerEnd) return;
+  const remaining = Math.max(0, graceTimerEnd - Date.now());
+  const m = Math.floor(remaining / 60000);
+  const s = Math.floor((remaining % 60000) / 1000);
+  el.textContent = m + ':' + String(s).padStart(2, '0');
+}
+
+/**
+ * Full verification workflow — called once when booking closes.
+ * Follows the state machine:
+ *   BOOKING_OPEN → VERIFYING → (GRACE_PERIOD →) RESULT_DISPLAYED
+ */
+async function runVerificationFlow() {
+  // ── Step 1: show verification loading screen for minimum 7 seconds ──
+  systemStatus = 'VERIFYING';
+  showVerificationScreen();
+
+  const verifyStart = Date.now();
+
+  // ── Step 2: call the server to clean up duplicate bookings ──────────
+  const releasedCount = await verifySeatAllocations();
+
+  // Ensure the loading screen is visible for at least 7 seconds so users
+  // can see it rather than flashing through instantly
+  const elapsed = Date.now() - verifyStart;
+  const minDisplay = 7000;
+  if (elapsed < minDisplay) {
+    await new Promise(resolve => setTimeout(resolve, minDisplay - elapsed));
+  }
+
+  // Re-fetch fresh seat data after server-side cleanup
+  await refreshBookings();
+
+  if (releasedCount > 0) {
+    // ── Step 3 & 4: seats were released — start 2-minute grace period ──
+    systemStatus  = 'GRACE_PERIOD';
+    graceTimerEnd = Date.now() + 2 * 60 * 1000;  // 2 minutes from now
+
+    showGraceScreen();
+    tickGraceTimer();  // set initial display immediately
+
+    // Update grace timer display every second
+    if (graceInterval) clearInterval(graceInterval);
+    graceInterval = setInterval(tickGraceTimer, 1000);
+
+    // ── Step 5: wait 2 minutes then verify again ────────────────────────
+    await new Promise(resolve => setTimeout(resolve, 2 * 60 * 1000));
+
+    clearInterval(graceInterval);
+    graceInterval = null;
+
+    // Second verification pass after grace period
+    systemStatus = 'VERIFYING';
+    showVerificationScreen();
+    await verifySeatAllocations();
+
+    const postGraceDelay = 4000;  // brief display of verification screen
+    await new Promise(resolve => setTimeout(resolve, postGraceDelay));
+
+    await refreshBookings();
+  }
+
+  // ── Step 6: display final results ───────────────────────────────────
+  systemStatus = 'RESULT_DISPLAYED';
+  hideAllSections();
+
+  const banner = document.getElementById('status-banner');
+  const dot    = document.getElementById('banner-dot');
+  const txt    = document.getElementById('banner-text');
+  banner.className = 'status-banner banner-results';
+  dot.className    = 'banner-dot dot-brand';
+  txt.textContent  = "📋 Booking CLOSED — Today's seat assignments are shown below.";
+
+  renderResultsTable(cachedBookings);
+  document.getElementById('results-section').classList.remove('hidden');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1367,21 +1550,49 @@ async function mainLoop() {
       if (el) el.textContent = formatCountdown(ms);
     }
 
+    // If runVerificationFlow is actively running, it owns the display.
+    // Do not allow mainLoop to overwrite the verification or grace screens.
+    if (systemStatus === 'VERIFYING' || systemStatus === 'GRACE_PERIOD') {
+      return;
+    }
+
+    // Safety guard: results section still visible but state has moved on —
+    // force-clear and refresh immediately (handles stuck isResettingCycle).
+    const resultsVisible = !document.getElementById('results-section').classList.contains('hidden');
+    if (resultsVisible && state !== 'results') {
+      lastState    = state;
+      isResettingCycle = false;
+      systemStatus = 'BOOKING_OPEN';
+      refreshDashboard();
+      return;
+    }
+
     if (state !== lastState) {
-      // ── New booking cycle detection ────────────────────────────────
       const justStartedNewCycle =
         (state === 'before_open' || state === 'reset' || state === 'weekend') &&
         (lastState === 'results' || lastState === 'open' || lastState === 'reset');
 
-      // Commit lastState BEFORE any async work so subsequent ticks skip this branch
+      // Detect the exact moment booking window closes and results window begins.
+      // Instead of showing results directly, enter the verification phase.
+      const justEnteredResults =
+        state === 'results' && (lastState === 'open' || lastState === null);
+
+      // Commit lastState BEFORE async work so subsequent ticks skip this block
       lastState = state;
+
+      if (justEnteredResults && systemStatus === 'BOOKING_OPEN') {
+        // ── VERIFICATION PHASE: owned entirely by runVerificationFlow ──
+        // It sets systemStatus = 'RESULT_DISPLAYED' when the flow completes.
+        runVerificationFlow();
+        return;
+      }
 
       if (justStartedNewCycle && !isResettingCycle) {
         isResettingCycle = true;
+        systemStatus     = 'BOOKING_OPEN';  // reset for next cycle
 
         (async () => {
           try {
-            // 1. Clear MongoDB / Supabase (db-level reset)
             const result = await apiRequest('/resetBookings', 'POST');
             if (!result.success) {
               console.warn('resetBookings returned failure:', result.message);
@@ -1390,21 +1601,24 @@ async function mainLoop() {
             console.error('Cycle reset: backend call failed:', err);
           }
 
-          // 2. Clear frontend cache + DOM
           resetSeatSelections();
-
-          // 3. Re-fetch fresh data (runs expiry + validation server-side)
           await refreshDashboard();
-
           isResettingCycle = false;
         })();
 
-        return; // refreshDashboard runs inside the IIFE
+        return;
       }
 
       if (!isResettingCycle) refreshDashboard();
 
     } else if (state === 'open' && now.getSeconds() % 5 === 0) {
+      // Ensure systemStatus is reset while booking is open so the verification
+      // flow triggers cleanly when booking closes.
+      if (systemStatus !== 'BOOKING_OPEN') systemStatus = 'BOOKING_OPEN';
+      refreshDashboard();
+
+    } else if (state === 'results' && now.getSeconds() % 5 === 0) {
+      // Periodic safety refresh during results window (BUG 2 fix retained).
       refreshDashboard();
     }
   }
@@ -1435,10 +1649,8 @@ document.addEventListener('keydown', e => {
 
 async function restoreSession(user) {
   currentUser = user;
-  // Restore the sessionVersion that was stored at login time
-  if (user.sessionVersion != null) {
-    cachedSessionVersion = user.sessionVersion;
-  }
+  // Ensure sessionVersion is always a number on the restored object
+  if (!currentUser.sessionVersion) currentUser.sessionVersion = 1;
   if (currentUser.mustChangePw) {
     showPage('page-change-password');
     return;
