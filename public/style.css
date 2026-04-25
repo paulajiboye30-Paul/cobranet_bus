@@ -1115,3 +1115,199 @@ code {
   color:         var(--brand);
   margin-bottom: .5rem;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════
+   DAILY BUS ROUTE MAP — feature styles
+   Added as an isolated block; does not touch any existing rule.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Orange CTA button on Staff dashboard ───────────────────── */
+.rmap-btn-wrap {
+  display:         flex;
+  justify-content: center;
+  padding:         1.25rem 1rem 2rem;
+}
+
+.btn-route-map {
+  display:          inline-flex;
+  align-items:      center;
+  gap:              .5rem;
+  padding:          .75rem 1.5rem;
+  background:       var(--brand);
+  color:            #fff;
+  border:           none;
+  border-radius:    var(--r-md);
+  font-family:      var(--font-body);
+  font-size:        .95rem;
+  font-weight:      600;
+  cursor:           pointer;
+  box-shadow:       var(--shadow-md);
+  transition:       background .15s, transform .1s, box-shadow .15s;
+  text-align:       center;
+}
+
+.btn-route-map:hover  { background: var(--brand-dark); box-shadow: var(--shadow-lg); }
+.btn-route-map:active { transform: scale(.97); }
+
+/* ── Staff viewer modal ─────────────────────────────────────── */
+.rmap-modal {
+  position:   fixed;
+  inset:      0;
+  z-index:    2000;
+  display:    flex;
+  align-items:     center;
+  justify-content: center;
+  background: rgba(0, 0, 0, .55);
+  padding:    1rem;
+}
+
+.rmap-modal.hidden { display: none; }
+
+.rmap-modal-inner {
+  background:    var(--surface);
+  border-radius: var(--r-lg);
+  box-shadow:    var(--shadow-lg);
+  display:       flex;
+  flex-direction: column;
+  width:         100%;
+  max-width:     860px;
+  max-height:    90vh;
+  overflow:      hidden;
+}
+
+.rmap-modal-header {
+  display:         flex;
+  align-items:     center;
+  justify-content: space-between;
+  padding:         .9rem 1.25rem;
+  border-bottom:   1px solid var(--border);
+  flex-shrink:     0;
+}
+
+.rmap-modal-title {
+  font-size:   1.05rem;
+  font-weight: 600;
+  color:       var(--text);
+}
+
+.rmap-modal-close {
+  background:  none;
+  border:      none;
+  font-size:   1.4rem;
+  line-height: 1;
+  color:       var(--text-muted);
+  cursor:      pointer;
+  padding:     .1rem .4rem;
+  border-radius: var(--r-sm);
+}
+.rmap-modal-close:hover { background: var(--surface-2); color: var(--text); }
+
+.rmap-modal-body {
+  flex:        1;
+  min-height:  420px;
+  position:    relative;
+  background:  var(--gray-100);
+}
+
+/* Status / empty messages inside the map container */
+.rmap-status {
+  display:         flex;
+  align-items:     center;
+  justify-content: center;
+  height:          100%;
+  min-height:      300px;
+  color:           var(--text-secondary);
+  font-size:       .95rem;
+  padding:         2rem;
+  text-align:      center;
+}
+
+.rmap-empty {
+  font-weight: 500;
+  color:       var(--text);
+}
+
+/* Leaflet tooltip override for stop names */
+.rmap-tooltip {
+  background:    #333;
+  color:         #fff;
+  border:        none;
+  border-radius: 4px;
+  padding:       2px 8px;
+  font-size:     .82rem;
+  font-weight:   500;
+}
+.rmap-tooltip::before { border-bottom-color: #333; }
+
+/* ── Admin panel — Bus Route tab ────────────────────────────── */
+.rmap-admin-controls {
+  margin-bottom: .75rem;
+}
+
+.rmap-admin-form-row {
+  display:   flex;
+  flex-wrap: wrap;
+  gap:       1rem;
+}
+
+.rmap-admin-form-row .form-group {
+  flex: 1 1 180px;
+}
+
+.rmap-admin-map {
+  width:         100%;
+  height:        480px;
+  border:        1px solid var(--border);
+  border-radius: var(--r-md);
+  background:    var(--gray-100);
+}
+
+/* Saved-route list rows */
+.rmap-route-row {
+  display:         flex;
+  align-items:     center;
+  justify-content: space-between;
+  gap:             .5rem;
+  padding:         .6rem .25rem;
+  border-bottom:   1px solid var(--border);
+  flex-wrap:       wrap;
+}
+.rmap-route-row:last-child { border-bottom: none; }
+
+.rmap-route-meta {
+  display:    flex;
+  flex-direction: column;
+  gap:        .15rem;
+}
+
+.rmap-route-date {
+  font-weight: 600;
+  font-size:   .9rem;
+  color:       var(--text);
+}
+
+.rmap-route-info {
+  font-size:  .8rem;
+  color:      var(--text-muted);
+}
+
+.rmap-route-actions {
+  display: flex;
+  gap:     .4rem;
+}
+
+/* ── Extra small button variant ─────────────────────────────── */
+.btn-xs {
+  padding:     .25rem .6rem;
+  font-size:   .78rem;
+  border-radius: var(--r-sm);
+}
+
+/* ── Responsive tweaks ──────────────────────────────────────── */
+@media (max-width: 540px) {
+  .btn-route-map { font-size: .85rem; padding: .65rem 1rem; }
+  .rmap-admin-map { height: 320px; }
+  .rmap-modal-inner { max-height: 95vh; }
+  .rmap-modal-body { min-height: 280px; }
+}

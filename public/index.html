@@ -248,6 +248,13 @@
       </div>
     </section>
 
+    <!-- ── Bus Route Map Button ─────────────────────────────────── -->
+    <div class="rmap-btn-wrap">
+      <button class="btn btn-route-map" onclick="BusRouteMap.openRouteMapModal()">
+        🗺️ Click to see the map of the route the bus is taking today
+      </button>
+    </div>
+
   </main>
 </div><!-- /page-dashboard -->
 
@@ -284,6 +291,7 @@
       <button class="tab-btn" onclick="switchTab('tab-users', this)">Staff</button>
       <button class="tab-btn" onclick="switchTab('tab-history', this)">History</button>
       <button class="tab-btn" onclick="switchTab('tab-settings', this)">Settings</button>
+      <button class="tab-btn" onclick="switchTab('tab-busroute', this); BusRouteMap.initAdminRouteMap()">Bus Route</button>
     </div>
 
     <!-- ── TAB: TODAY'S BOOKINGS ─────────────────────────────── -->
@@ -435,10 +443,67 @@
       </div>
     </div>
 
+    <!-- ── TAB: BUS ROUTE ─────────────────────────────────────── -->
+    <div id="tab-busroute" class="tab-pane">
+      <div class="pane-header">
+        <h3 class="pane-title">Bus Route Management</h3>
+      </div>
+
+      <!-- Controls card -->
+      <div class="card rmap-admin-controls">
+        <div class="rmap-admin-form-row">
+          <div class="form-group">
+            <label class="form-label">Route Date</label>
+            <input type="date" id="route-date-input" class="form-input" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Drawing Mode</label>
+            <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+              <button id="btn-mode-route" class="btn btn-primary btn-sm"
+                onclick="BusRouteMap.setDrawMode('route')">🔵 Route Points</button>
+              <button id="btn-mode-stop"  class="btn btn-secondary btn-sm"
+                onclick="BusRouteMap.setDrawMode('stop')">🟡 Bus Stops</button>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.75rem;">
+          <button class="btn btn-primary btn-sm"   onclick="BusRouteMap.saveAdminRoute()">💾 Save Route</button>
+          <button class="btn btn-secondary btn-sm" onclick="BusRouteMap.clearAdminMap()">🗑 Clear Map</button>
+        </div>
+        <p class="text-sm text-muted" style="margin-top:.6rem;line-height:1.5;">
+          <strong>Route Points mode:</strong> Click the map to add waypoints along the bus path (blue line).<br>
+          <strong>Bus Stops mode:</strong> Click the map, then enter a name to place a yellow bus stop marker.
+        </p>
+      </div>
+
+      <!-- Leaflet map for admin -->
+      <div id="admin-route-map" class="rmap-admin-map"></div>
+
+      <!-- Saved routes list -->
+      <div class="card" style="margin-top:1rem;">
+        <h4 class="form-section-title">Saved Routes</h4>
+        <div id="admin-route-list"></div>
+      </div>
+    </div>
+
   </main>
 </div><!-- /page-admin -->
 
+<!-- ═══════════════════════════════════════════════════════════════
+     ROUTE MAP MODAL  (Staff view — lazy loaded)
+══════════════════════════════════════════════════════════════════ -->
+<div id="route-map-modal" class="rmap-modal hidden">
+  <div class="rmap-modal-inner">
+    <div class="rmap-modal-header">
+      <h3 class="rmap-modal-title">🗺️ Today's Bus Route</h3>
+      <button class="modal-close rmap-modal-close" onclick="BusRouteMap.closeRouteMapModal()">&times;</button>
+    </div>
+    <div id="route-map-container" class="rmap-modal-body"></div>
+  </div>
+</div>
+
 <script src="script.js"></script>
+<script src="busRouteMap.js"></script>
 
 
 
