@@ -96,13 +96,20 @@
 
       const route = data.route;
 
-      // Build map div inside container
-      container.innerHTML = '<div id="leaflet-staff-map" style="width:100%;height:100%;"></div>';
+      // Build map div inside container.
+      // Use an explicit pixel height — height:100% is unreliable when the
+      // parent's height comes from flex:1 + min-height rather than a fixed value.
+      container.innerHTML = '<div id="leaflet-staff-map" style="width:100%;height:420px;"></div>';
 
       // Small delay so the div is in the DOM before Leaflet measures it
       await new Promise(r => setTimeout(r, 80));
 
       _staffMap = L.map('leaflet-staff-map').setView(LAGOS_CENTER, DEFAULT_ZOOM);
+
+      // Force Leaflet to re-measure after the browser has painted the modal.
+      // Without this, any sub-pixel rounding or transition delay leaves the
+      // map thinking its container is 0-sized, producing a blank tile grid.
+      setTimeout(() => { if (_staffMap) _staffMap.invalidateSize(); }, 300);
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
