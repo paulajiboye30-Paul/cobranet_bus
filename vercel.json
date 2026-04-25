@@ -26,6 +26,10 @@
       "dest": "/server.js"
     },
     {
+      "src": "/busRouteMap.js",
+      "dest": "/server.js"
+    },
+    {
       "src": "/api/(.*)",
       "dest": "/server.js"
     },
