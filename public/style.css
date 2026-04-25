@@ -1205,8 +1205,10 @@ code {
 
 .rmap-modal-body {
   flex:        1;
+  height:      420px;       /* explicit height so Leaflet's height:100% resolves */
   min-height:  420px;
   position:    relative;
+  overflow:    hidden;
   background:  var(--gray-100);
 }
 
@@ -1309,5 +1311,5 @@ code {
   .btn-route-map { font-size: .85rem; padding: .65rem 1rem; }
   .rmap-admin-map { height: 320px; }
   .rmap-modal-inner { max-height: 95vh; }
-  .rmap-modal-body { min-height: 280px; }
+  .rmap-modal-body { height: 280px; min-height: 280px; }
 }
