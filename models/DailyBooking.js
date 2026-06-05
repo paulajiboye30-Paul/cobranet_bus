@@ -35,6 +35,19 @@ const dailyBookingSchema = new mongoose.Schema({
       });
     }
   },
+  // Optional display name for admin-created bookings where the staff
+  // member may not exist in the Staff collection.
+  staff_name: {
+    type:    String,
+    default: ''
+  },
+  // True only for bookings created via POST /api/adminBooking.
+  // Allows the upcoming-bookings list to filter by source.
+  is_admin_booking: {
+    type:    Boolean,
+    default: false,
+    index:   true
+  },
   created_at: {
     type:    Date,
     default: Date.now
