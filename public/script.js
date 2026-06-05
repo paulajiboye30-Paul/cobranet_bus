@@ -1826,3 +1826,103 @@ syncServerTime().then(() => {
     localStorage.removeItem('cobranet_user');
   }
 }());
+
+// ═══════════════════════════════════════════════════════════════
+// ADMIN MANUAL BOOKING
+// ═══════════════════════════════════════════════════════════════
+
+function populateMbSeatSelect() {
+  const sel   = document.getElementById('mb-seat');
+  if (!sel) return;
+  const total = cachedSettings.totalSeats || 30;
+  sel.innerHTML = '';
+  for (let i = 1; i <= total; i++) {
+    const opt = document.createElement('option');
+    opt.value       = i;
+    opt.textContent = 'Seat ' + i;
+    sel.appendChild(opt);
+  }
+}
+
+async function loadUpcomingBookings() {
+  populateMbSeatSelect();
+  const tbody  = document.getElementById('upcoming-bookings-body');
+  const empty  = document.getElementById('upcoming-empty');
+  if (!tbody) return;
+
+  try {
+    const data = await apiRequest('/adminBooking', 'GET');
+    tbody.innerHTML = '';
+    if (!data.success || !data.bookings || !data.bookings.length) {
+      empty && (empty.style.display = 'block');
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No upcoming manual bookings.</td></tr>';
+      return;
+    }
+    empty && (empty.style.display = 'none');
+    data.bookings.forEach(b => {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + b.date + '</td>' +
+        '<td>' + b.time + '</td>' +
+        '<td><span class="badge badge-brand">Seat ' + b.seat + '</span></td>' +
+        '<td>' + (b.staffName || '—') + '</td>' +
+        '<td>' + b.staffId + '</td>';
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    console.error('loadUpcomingBookings error:', err);
+  }
+}
+
+async function submitManualBooking() {
+  const errEl  = document.getElementById('mb-error');
+  const okEl   = document.getElementById('mb-success');
+  errEl.style.display = 'none';
+  okEl.style.display  = 'none';
+
+  const date     = (document.getElementById('mb-date')?.value     || '').trim();
+  const time     = (document.getElementById('mb-time')?.value     || '').trim();
+  const name     = (document.getElementById('mb-name')?.value     || '').trim();
+  const username = (document.getElementById('mb-username')?.value || '').trim();
+  const seat     = document.getElementById('mb-seat')?.value;
+
+  if (!date || !time || !name || !username || !seat) {
+    errEl.textContent    = 'All fields are required.';
+    errEl.style.display  = 'block';
+    return;
+  }
+
+  if (!currentUser || currentUser.role !== 'admin') {
+    errEl.textContent   = 'Admin access required.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const data = await apiRequest('/adminBooking', 'POST', {
+      adminId:      currentUser._id || currentUser.id,
+      booking_date: date,
+      booking_time: time,
+      staff_name:   name,
+      staffId:      username,
+      seat_number:  seat
+    });
+
+    if (data.success) {
+      okEl.textContent   = data.message || 'Booking created.';
+      okEl.style.display = 'block';
+      document.getElementById('mb-date').value     = '';
+      document.getElementById('mb-time').value     = '';
+      document.getElementById('mb-name').value     = '';
+      document.getElementById('mb-username').value = '';
+      loadUpcomingBookings();
+    } else {
+      errEl.textContent   = data.message || 'Booking failed.';
+      errEl.style.display = 'block';
+    }
+  } catch (err) {
+    errEl.textContent   = 'Network error. Please try again.';
+    errEl.style.display = 'block';
+    console.error('submitManualBooking error:', err);
+  }
+}

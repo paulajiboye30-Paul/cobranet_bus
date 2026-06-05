@@ -834,6 +834,15 @@ select.form-input { cursor: pointer; }
   color:        var(--red);
 }
 
+.alert-success {
+  background:   #ecfdf5;
+  border:       1px solid #6ee7b7;
+  color:        #065f46;
+  padding:      .5rem .75rem;
+  border-radius: var(--radius-sm);
+  font-size:    .875rem;
+}
+
 .hidden { display: none !important; }
 
 /* ═══════════════════════════════════════════════════════════════
