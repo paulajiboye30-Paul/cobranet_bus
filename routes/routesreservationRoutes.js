@@ -312,10 +312,21 @@ router.get('/seats', async (req, res) => {
 
     const bookings = {};
     bookingRows.forEach(row => {
+      // For admin-created bookings the staff_id ObjectId references the admin
+      // account, not the booked staff member.  Prefer the staff_name and
+      // staffId strings that were explicitly stored on the booking document.
+      const isAdminBooking = row.is_admin_booking === true;
+      const displayName = isAdminBooking
+        ? (row.staff_name && row.staff_name.trim() ? row.staff_name.trim() : row.staffId)
+        : (row.staff_id ? row.staff_id.name : row.staffId);
+      const displayDept = isAdminBooking
+        ? ''
+        : (row.staff_id ? row.staff_id.department : '');
+
       bookings[String(row.seat_number)] = {
         username:   row.staffId,
-        name:       row.staff_id ? row.staff_id.name : row.staffId,
-        department: row.staff_id ? row.staff_id.department : '',
+        name:       displayName,
+        department: displayDept,
         time:       row.booking_time,
         date:       todayStr
       };

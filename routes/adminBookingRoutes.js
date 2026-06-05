@@ -32,8 +32,25 @@ function formatLocalDate(d) {
 }
 
 // ── GET /api/adminBooking — upcoming bookings (today and future) ──────────────
+// Optional ?date=YYYY-MM-DD returns booked seat numbers for that date (seat filter).
 router.get('/', async (req, res) => {
   try {
+    const queryDate = (req.query && req.query.date) ? req.query.date : null;
+
+    // When ?date= is supplied return only the seat numbers already booked that
+    // day so the frontend can disable them in the seat-number dropdown.
+    if (queryDate) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(queryDate)) {
+        return res.status(400).json({ success: false, message: 'Invalid date format.' });
+      }
+      const { start, end } = dayRangeFor(queryDate);
+      const taken = await DailyBooking
+        .find({ booking_date: { $gte: start, $lt: end } })
+        .select('seat_number')
+        .lean();
+      return res.json({ success: true, bookedSeats: taken.map(r => r.seat_number) });
+    }
+
     const now        = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
