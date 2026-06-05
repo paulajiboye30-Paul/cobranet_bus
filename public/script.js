@@ -1347,11 +1347,12 @@ function switchTab(id, btn) {
   document.getElementById(id).classList.add('active');
   btn.classList.add('active');
 
-  if (id === 'tab-bookings')     renderAdminBookings();
-  if (id === 'tab-history')      renderHistory();
-  if (id === 'tab-users')        renderUsersTable();
-  if (id === 'tab-reservations') { populateResSeatSelect(); renderReservationsList(); }
-  if (id === 'tab-settings')     loadSettingsForm();
+  if (id === 'tab-bookings')      renderAdminBookings();
+  if (id === 'tab-history')       renderHistory();
+  if (id === 'tab-users')         renderUsersTable();
+  if (id === 'tab-reservations')  { populateResSeatSelect(); renderReservationsList(); }
+  if (id === 'tab-settings')      loadSettingsForm();
+  if (id === 'tab-manualbooking') loadUpcomingBookings();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1832,19 +1833,38 @@ syncServerTime().then(() => {
 // ADMIN MANUAL BOOKING
 // ═══════════════════════════════════════════════════════════════
 
-function populateMbSeatSelect() {
-  const sel   = document.getElementById('mb-seat');
+async function populateMbSeatSelect(bookedSeats) {
+  const sel = document.getElementById('mb-seat');
   if (!sel) return;
-  const total = cachedSettings.totalSeats || 30;
+  const total   = cachedSettings.totalSeats || 30;
   const current = sel.value;
+
+  // If bookedSeats not supplied, fetch them for the currently selected date.
+  if (!bookedSeats) {
+    const dateVal = document.getElementById('mb-date') ? document.getElementById('mb-date').value : '';
+    if (dateVal) {
+      try {
+        var resp = await apiRequest('/adminBooking?date=' + encodeURIComponent(dateVal), 'GET');
+        bookedSeats = (resp && resp.success && Array.isArray(resp.bookedSeats)) ? resp.bookedSeats : [];
+      } catch (_) {
+        bookedSeats = [];
+      }
+    } else {
+      bookedSeats = [];
+    }
+  }
+
+  const takenSet = new Set((bookedSeats || []).map(Number));
   sel.innerHTML = '';
   for (let i = 1; i <= total; i++) {
+    if (takenSet.has(i)) continue;
     const opt = document.createElement('option');
     opt.value       = String(i);
     opt.textContent = 'Seat ' + i;
     sel.appendChild(opt);
   }
-  if (current && parseInt(current, 10) <= total) {
+  // Restore previous selection only if it is still available.
+  if (current && !takenSet.has(parseInt(current, 10)) && parseInt(current, 10) <= total) {
     sel.value = current;
   }
 }
@@ -1882,7 +1902,7 @@ function escapeHtml(str) {
 }
 
 async function loadUpcomingBookings() {
-  populateMbSeatSelect();
+  await populateMbSeatSelect();
   try {
     var data = await apiRequest('/adminBooking', 'GET');
     if (data && data.success) {
