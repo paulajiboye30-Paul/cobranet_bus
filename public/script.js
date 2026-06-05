@@ -1827,6 +1827,7 @@ syncServerTime().then(() => {
   }
 }());
 
+
 // ═══════════════════════════════════════════════════════════════
 // ADMIN MANUAL BOOKING
 // ═══════════════════════════════════════════════════════════════
@@ -1835,94 +1836,147 @@ function populateMbSeatSelect() {
   const sel   = document.getElementById('mb-seat');
   if (!sel) return;
   const total = cachedSettings.totalSeats || 30;
+  const current = sel.value;
   sel.innerHTML = '';
   for (let i = 1; i <= total; i++) {
     const opt = document.createElement('option');
-    opt.value       = i;
+    opt.value       = String(i);
     opt.textContent = 'Seat ' + i;
     sel.appendChild(opt);
   }
+  if (current && parseInt(current, 10) <= total) {
+    sel.value = current;
+  }
+}
+
+function renderUpcomingRows(bookings) {
+  const tbody = document.getElementById('upcoming-bookings-body');
+  const empty = document.getElementById('upcoming-empty');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  if (!bookings || !bookings.length) {
+    if (empty) empty.style.display = 'block';
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No upcoming manual bookings.</td></tr>';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  bookings.forEach(function(b) {
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + escapeHtml(b.date) + '</td>' +
+      '<td>' + escapeHtml(b.time) + '</td>' +
+      '<td><span class="badge badge-brand">Seat ' + escapeHtml(String(b.seat)) + '</span></td>' +
+      '<td>' + escapeHtml(b.staffName || '—') + '</td>' +
+      '<td>' + escapeHtml(b.staffId || '—') + '</td>';
+    tbody.appendChild(tr);
+  });
+}
+
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 async function loadUpcomingBookings() {
   populateMbSeatSelect();
-  const tbody  = document.getElementById('upcoming-bookings-body');
-  const empty  = document.getElementById('upcoming-empty');
-  if (!tbody) return;
-
   try {
-    const data = await apiRequest('/adminBooking', 'GET');
-    tbody.innerHTML = '';
-    if (!data.success || !data.bookings || !data.bookings.length) {
-      empty && (empty.style.display = 'block');
-      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No upcoming manual bookings.</td></tr>';
-      return;
+    var data = await apiRequest('/adminBooking', 'GET');
+    if (data && data.success) {
+      renderUpcomingRows(data.bookings || []);
+    } else {
+      renderUpcomingRows([]);
     }
-    empty && (empty.style.display = 'none');
-    data.bookings.forEach(b => {
-      const tr = document.createElement('tr');
-      tr.innerHTML =
-        '<td>' + b.date + '</td>' +
-        '<td>' + b.time + '</td>' +
-        '<td><span class="badge badge-brand">Seat ' + b.seat + '</span></td>' +
-        '<td>' + (b.staffName || '—') + '</td>' +
-        '<td>' + b.staffId + '</td>';
-      tbody.appendChild(tr);
-    });
   } catch (err) {
     console.error('loadUpcomingBookings error:', err);
+    renderUpcomingRows([]);
   }
 }
 
 async function submitManualBooking() {
-  const errEl  = document.getElementById('mb-error');
-  const okEl   = document.getElementById('mb-success');
-  errEl.style.display = 'none';
-  okEl.style.display  = 'none';
+  var errEl = document.getElementById('mb-error');
+  var okEl  = document.getElementById('mb-success');
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+  if (okEl)  { okEl.style.display  = 'none'; okEl.textContent  = ''; }
 
-  const date     = (document.getElementById('mb-date')?.value     || '').trim();
-  const time     = (document.getElementById('mb-time')?.value     || '').trim();
-  const name     = (document.getElementById('mb-name')?.value     || '').trim();
-  const username = (document.getElementById('mb-username')?.value || '').trim();
-  const seat     = document.getElementById('mb-seat')?.value;
+  var date     = (document.getElementById('mb-date')     ? document.getElementById('mb-date').value     : '').trim();
+  var time     = (document.getElementById('mb-time')     ? document.getElementById('mb-time').value     : '').trim();
+  var name     = (document.getElementById('mb-name')     ? document.getElementById('mb-name').value     : '').trim();
+  var username = (document.getElementById('mb-username') ? document.getElementById('mb-username').value : '').trim();
+  var seat     = document.getElementById('mb-seat')      ? document.getElementById('mb-seat').value     : '';
 
   if (!date || !time || !name || !username || !seat) {
-    errEl.textContent    = 'All fields are required.';
-    errEl.style.display  = 'block';
+    if (errEl) { errEl.textContent = 'All fields are required.'; errEl.style.display = 'block'; }
     return;
   }
 
   if (!currentUser || currentUser.role !== 'admin') {
-    errEl.textContent   = 'Admin access required.';
-    errEl.style.display = 'block';
+    if (errEl) { errEl.textContent = 'Admin access required.'; errEl.style.display = 'block'; }
+    return;
+  }
+
+  var adminId = (currentUser._id || currentUser.id || '');
+  if (!adminId) {
+    if (errEl) { errEl.textContent = 'Session error. Please log in again.'; errEl.style.display = 'block'; }
     return;
   }
 
   try {
-    const data = await apiRequest('/adminBooking', 'POST', {
-      adminId:      currentUser._id || currentUser.id,
+    var data = await apiRequest('/adminBooking', 'POST', {
+      adminId:      adminId,
       booking_date: date,
       booking_time: time,
       staff_name:   name,
       staffId:      username,
-      seat_number:  seat
+      seat_number:  parseInt(seat, 10)
     });
 
-    if (data.success) {
-      okEl.textContent   = data.message || 'Booking created.';
-      okEl.style.display = 'block';
-      document.getElementById('mb-date').value     = '';
-      document.getElementById('mb-time').value     = '';
-      document.getElementById('mb-name').value     = '';
-      document.getElementById('mb-username').value = '';
+    if (data && data.success) {
+      if (okEl) { okEl.textContent = data.message || 'Booking created.'; okEl.style.display = 'block'; }
+
+      // Reset form fields
+      if (document.getElementById('mb-date'))     document.getElementById('mb-date').value     = '';
+      if (document.getElementById('mb-time'))     document.getElementById('mb-time').value     = '';
+      if (document.getElementById('mb-name'))     document.getElementById('mb-name').value     = '';
+      if (document.getElementById('mb-username')) document.getElementById('mb-username').value = '';
+
+      // Optimistically prepend the new booking to the table, then refresh
+      // from the server to ensure the list is authoritative.
+      if (data.booking) {
+        var existing = document.getElementById('upcoming-bookings-body');
+        var empty    = document.getElementById('upcoming-empty');
+        if (existing) {
+          // Remove "no bookings" placeholder if present
+          var placeholder = existing.querySelector('td[colspan]');
+          if (placeholder) existing.innerHTML = '';
+          if (empty) empty.style.display = 'none';
+
+          var b  = data.booking;
+          var tr = document.createElement('tr');
+          tr.setAttribute('data-booking-id', b.id || '');
+          tr.innerHTML =
+            '<td>' + escapeHtml(b.date) + '</td>' +
+            '<td>' + escapeHtml(b.time) + '</td>' +
+            '<td><span class="badge badge-brand">Seat ' + escapeHtml(String(b.seat)) + '</span></td>' +
+            '<td>' + escapeHtml(b.staffName || '—') + '</td>' +
+            '<td>' + escapeHtml(b.staffId   || '—') + '</td>';
+          existing.insertBefore(tr, existing.firstChild);
+        }
+      }
+
+      // Full refresh to get server-sorted, authoritative list
       loadUpcomingBookings();
     } else {
-      errEl.textContent   = data.message || 'Booking failed.';
-      errEl.style.display = 'block';
+      if (errEl) {
+        errEl.textContent = (data && data.message) ? data.message : 'Booking failed.';
+        errEl.style.display = 'block';
+      }
     }
   } catch (err) {
-    errEl.textContent   = 'Network error. Please try again.';
-    errEl.style.display = 'block';
+    if (errEl) { errEl.textContent = 'Network error. Please try again.'; errEl.style.display = 'block'; }
     console.error('submitManualBooking error:', err);
   }
 }
