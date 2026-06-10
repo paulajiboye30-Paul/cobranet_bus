@@ -4,6 +4,7 @@
 
 const express      = require('express');
 const router       = express.Router();
+const mongoose     = require('mongoose');
 const DailyBooking = require('../models/DailyBooking');
 const Reservation  = require('../models/TemporaryReservation');
 const Settings     = require('../models/Settings');
@@ -76,6 +77,13 @@ router.get('/', async (req, res) => {
 });
 
 // ── POST /api/adminBooking — create a manual admin booking ───────────────────
+//
+// Priority rule: an admin manual booking ALWAYS takes precedence over a regular
+// staff self-booking.  If a regular booking already exists for the same seat or
+// the same staffId on the requested date it is deleted atomically inside a
+// transaction before the admin booking is inserted.  The transaction also
+// re-checks for admin-vs-admin conflicts inside the session so concurrent admin
+// requests cannot race past the pre-checks.
 router.post('/', async (req, res) => {
   try {
     const {
@@ -158,40 +166,95 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // ── 7. Seat already booked that day ──────────────────────────────────────
-    const seatTaken = await DailyBooking.findOne({
-      seat_number:  seatNum,
-      booking_date: { $gte: dayStart, $lt: dayEnd }
-    });
-    if (seatTaken) {
-      return res.status(409).json({
-        success: false,
-        message: `Seat ${seatNum} is already booked on that date.`
-      });
-    }
+    // ── 7 & 8. Atomic priority booking ───────────────────────────────────────
+    //
+    // Admin bookings can override existing regular (non-admin) bookings for the
+    // same seat or staffId.  The conflict check and the write are performed
+    // inside a single MongoDB transaction so no concurrent request can slip
+    // between them.
+    //
+    // What is rejected (admin-vs-admin): if another admin booking already
+    // exists for the requested seat OR the requested staffId on that date,
+    // the request is refused — admins cannot silently overwrite each other.
+    //
+    // What is overridden (admin-vs-regular): any regular (non-admin) booking
+    // for the requested seat or staffId is deleted before the new admin booking
+    // is inserted, giving the admin assignment unconditional priority.
+    //
+    // The transaction is automatically retried by the MongoDB driver on
+    // transient write-conflict errors (e.g. a concurrent regular booking that
+    // committed after the transaction's read snapshot was taken).
+    let newBooking;
 
-    // ── 8. Staff already has a booking that day ───────────────────────────────
-    const staffBooked = await DailyBooking.findOne({
-      staffId:      staffIdLower,
-      booking_date: { $gte: dayStart, $lt: dayEnd }
-    });
-    if (staffBooked) {
-      return res.status(409).json({
-        success: false,
-        message: `${staffIdLower} already has a booking on that date.`
-      });
-    }
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        // ── 7a. Admin-vs-admin conflict: seat ───────────────────────────────
+        const adminSeatConflict = await DailyBooking.findOne(
+          {
+            seat_number:      seatNum,
+            booking_date:     { $gte: dayStart, $lt: dayEnd },
+            is_admin_booking: true
+          },
+          null,
+          { session }
+        );
+        if (adminSeatConflict) {
+          const e = new Error(`Seat ${seatNum} is already admin-booked on that date.`);
+          e._appError = true; e._status = 409;
+          throw e;
+        }
 
-    // ── 9. Create booking — response is sent before optional audit log ────────
-    const newBooking = await DailyBooking.create({
-      staff_id:         adminDoc._id,
-      staffId:          staffIdLower,
-      staff_name:       staff_name.trim(),
-      seat_number:      seatNum,
-      booking_date:     dayStart,
-      booking_time:     booking_time + ':00',
-      is_admin_booking: true
-    });
+        // ── 7b. Admin-vs-admin conflict: staffId ────────────────────────────
+        const adminStaffConflict = await DailyBooking.findOne(
+          {
+            staffId:          staffIdLower,
+            booking_date:     { $gte: dayStart, $lt: dayEnd },
+            is_admin_booking: true
+          },
+          null,
+          { session }
+        );
+        if (adminStaffConflict) {
+          const e = new Error(`${staffIdLower} already has an admin booking on that date.`);
+          e._appError = true; e._status = 409;
+          throw e;
+        }
+
+        // ── 8. Override any conflicting regular (non-admin) bookings ─────────
+        // Delete any non-admin booking that would violate the seat or staffId
+        // uniqueness constraint.  This gives the admin booking priority over
+        // any regular booking that was created before this transaction runs.
+        await DailyBooking.deleteMany(
+          {
+            booking_date:     { $gte: dayStart, $lt: dayEnd },
+            is_admin_booking: { $ne: true },
+            $or: [
+              { seat_number: seatNum },
+              { staffId:     staffIdLower }
+            ]
+          },
+          { session }
+        );
+
+        // ── 9. Insert the admin booking ──────────────────────────────────────
+        const [created] = await DailyBooking.create(
+          [{
+            staff_id:         adminDoc._id,
+            staffId:          staffIdLower,
+            staff_name:       staff_name.trim(),
+            seat_number:      seatNum,
+            booking_date:     dayStart,
+            booking_time:     booking_time + ':00',
+            is_admin_booking: true
+          }],
+          { session }
+        );
+        newBooking = created;
+      });
+    } finally {
+      await session.endSession();
+    }
 
     // Send the success response immediately after the DB write succeeds.
     // Audit logging is fire-and-forget and must never affect the response.
@@ -217,9 +280,16 @@ router.post('/', async (req, res) => {
     } catch (_) { /* swallow */ }
 
   } catch (err) {
+    // Application-level conflict (admin-vs-admin) thrown from inside the transaction.
+    if (err._appError) {
+      return res.status(err._status || 409).json({ success: false, message: err.message });
+    }
+
     console.error('adminBooking POST error:', err);
 
     if (err.code === 11000) {
+      // A concurrent admin booking committed between our transaction checks and
+      // our insert — this is the admin-vs-admin race edge case.
       const key = Object.keys(err.keyPattern || {})[0] || '';
       const msg = key.includes('staffId')
         ? 'Staff already has a booking on that date.'
