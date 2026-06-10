@@ -58,14 +58,38 @@ router.get('/', async (req, res) => {
 
     const rows = await DailyBooking
       .find({ booking_date: { $gte: todayStart, $lt: todayEnd } })
-      .populate('staff_id', 'staff_name staffId department');
+      // Populate with the ACTUAL Staff schema field names (name, username).
+      // staff_name / staffId are DailyBooking fields, not Staff fields.
+      .populate('staff_id', 'name username department');
 
     const bookings = {};
     rows.forEach(row => {
+      // ── Admin manual booking ──────────────────────────────────────────────
+      // For admin-created bookings, staff_id holds the ADMIN's ObjectId, not
+      // the booked person's.  Populating it therefore returns the admin's own
+      // identity.  Always use the values written explicitly at booking time:
+      //   row.staffId    — booked person's username (lower-cased)
+      //   row.staff_name — manually entered display name
+      if (row.is_admin_booking) {
+        bookings[String(row.seat_number)] = {
+          username:   row.staffId,
+          name:       row.staff_name && row.staff_name.trim()
+                        ? row.staff_name.trim()
+                        : row.staffId,
+          department: '',
+          time:       row.booking_time,
+          date:       todayStr
+        };
+        return;
+      }
+
+      // ── Regular staff self-booking ────────────────────────────────────────
+      // staff_id is the booking staff's ObjectId; populate returns their doc.
+      // Staff model fields: username (login name), name (display name).
       const staffDoc = row.staff_id;
       bookings[String(row.seat_number)] = {
-        username:   staffDoc ? staffDoc.staffId    : row.staffId,
-        name:       staffDoc ? staffDoc.staff_name : row.staffId,  // BUG FIX: fallback
+        username:   staffDoc ? staffDoc.username   : row.staffId,
+        name:       staffDoc ? staffDoc.name       : row.staffId,
         department: staffDoc ? staffDoc.department : '',
         time:       row.booking_time,
         date:       todayStr
@@ -167,7 +191,7 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // CHECK 2 — Seat already taken today
+    // CHECK 2 — Seat already taken today (includes admin manual bookings)
     const seatTaken = await DailyBooking.findOne({
       seat_number:  seatNum,
       booking_date: { $gte: todayStart, $lt: todayEnd }
@@ -177,13 +201,13 @@ router.post('/', async (req, res) => {
       await SystemLog.record(
         'SEAT_BOOKING_REJECTED',
         `Seat ${seatNum} already taken when ${staffIdLower} attempted`,
-        { seat: seatNum },
+        { seat: seatNum, isAdminBooking: seatTaken.is_admin_booking },
         staffIdLower, ip
       );
       return res.status(409).json({ success: false, message: 'Seat already taken', conflict: true });
     }
 
-    // CHECK 3 — Staff already has a seat today
+    // CHECK 3 — Staff already has a seat today (includes admin-assigned seats)
     const existingStaffBooking = await DailyBooking.findOne({
       staffId:      staffIdLower,
       booking_date: { $gte: todayStart, $lt: todayEnd }
@@ -193,7 +217,7 @@ router.post('/', async (req, res) => {
       await SystemLog.record(
         'DUPLICATE_BOOKING_ATTEMPT',
         `${staffIdLower} already holds seat ${existingStaffBooking.seat_number} today`,
-        { existingSeat: existingStaffBooking.seat_number, requestedSeat: seatNum },
+        { existingSeat: existingStaffBooking.seat_number, requestedSeat: seatNum, isAdminBooking: existingStaffBooking.is_admin_booking },
         staffIdLower, ip
       );
       return res.status(409).json({
@@ -202,7 +226,9 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // CREATE booking
+    // CREATE booking — unique indexes are the final race guard.
+    // An admin booking committed between CHECK 2/3 above and this insert
+    // will produce a 11000 error which is caught below and returned as 409.
     const newBooking = await DailyBooking.create({
       staff_id:     userId,
       staffId:      staffIdLower,
