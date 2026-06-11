@@ -342,30 +342,32 @@ router.get('/seats', async (req, res) => {
     }).lean();
 
     const reservations = resRows.map(r => ({
-      _id:         r._id.toString(),
-      seat:        r.seat_number,
-      label:       r.label,
-      type:        r.reservation_type,
-      status:      r.status,
-      expiresDate: r.expires_at ? r.expires_at.toISOString().split('T')[0] : null,
-      expiresAt:   r.expires_at ? r.expires_at.toISOString() : null,
-      reservedAt:  r.reserved_at.toISOString()
+      _id:              r._id.toString(),
+      seat:             r.seat_number,
+      label:            r.label,
+      type:             r.reservation_type,
+      status:           r.status,
+      reservation_time: r.reservation_time || null,
+      expiresDate:      r.expires_at ? r.expires_at.toISOString().split('T')[0] : null,
+      expiresAt:        r.expires_at ? r.expires_at.toISOString() : null,
+      reservedAt:       r.reserved_at.toISOString()
     }));
 
     resRows.forEach(r => {
       const sNum = String(r.seat_number);
       if (!bookings[sNum]) {
-        const reservedTime = r.reserved_at
-          ? new Date(r.reserved_at).toLocaleTimeString('en-GB', {
+        // Use admin-chosen time if set; otherwise fall back to the time the reservation was created
+        const displayTime = r.reservation_time
+          ? r.reservation_time
+          : new Date(r.reserved_at).toLocaleTimeString('en-GB', {
               hour: '2-digit', minute: '2-digit', second: '2-digit',
               hour12: false, timeZone: 'Africa/Lagos'
-            })
-          : '—';
+            });
         bookings[sNum] = {
           username:         r.label,
           name:             r.label,
           department:       '',
-          time:             reservedTime,
+          time:             displayTime,
           date:             todayStr,
           _reserved:        true,
           _reservationType: r.reservation_type
@@ -648,14 +650,15 @@ router.get('/reservations', async (req, res) => {
     }).lean();
 
     const reservations = data.map(r => ({
-      _id:         r._id.toString(),
-      seat:        r.seat_number,
-      label:       r.label,
-      type:        r.reservation_type,
-      status:      r.status,
-      expiresDate: r.expires_at ? new Date(r.expires_at).toISOString().split('T')[0] : null,
-      expiresAt:   r.expires_at ? new Date(r.expires_at).toISOString() : null,
-      reservedAt:  new Date(r.reserved_at).toISOString()
+      _id:              r._id.toString(),
+      seat:             r.seat_number,
+      label:            r.label,
+      type:             r.reservation_type,
+      status:           r.status,
+      reservation_time: r.reservation_time || null,
+      expiresDate:      r.expires_at ? new Date(r.expires_at).toISOString().split('T')[0] : null,
+      expiresAt:        r.expires_at ? new Date(r.expires_at).toISOString() : null,
+      reservedAt:       new Date(r.reserved_at).toISOString()
     }));
 
     res.json({ success: true, reservations });
@@ -670,7 +673,7 @@ router.get('/reservations', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/reservations', async (req, res) => {
   try {
-    const { seat, label, type, days } = req.body;
+    const { seat, label, type, days, reservation_time } = req.body;
 
     if (!seat || !label || !type) {
       return res.status(400).json({
@@ -721,20 +724,22 @@ router.post('/reservations', async (req, res) => {
       label:            label.trim(),
       reservation_type: type,
       expires_at:       expiresAt,
+      reservation_time: reservation_time ? reservation_time.trim() : null,
       status:           'active'
     });
 
     res.json({
       success: true,
       reservation: {
-        _id:         newRes._id.toString(),
-        seat:        newRes.seat_number,
-        label:       newRes.label,
-        type:        newRes.reservation_type,
-        status:      newRes.status,
-        expiresDate: newRes.expires_at ? newRes.expires_at.toISOString().split('T')[0] : null,
-        expiresAt:   newRes.expires_at ? newRes.expires_at.toISOString() : null,
-        reservedAt:  newRes.reserved_at.toISOString()
+        _id:              newRes._id.toString(),
+        seat:             newRes.seat_number,
+        label:            newRes.label,
+        type:             newRes.reservation_type,
+        status:           newRes.status,
+        reservation_time: newRes.reservation_time || null,
+        expiresDate:      newRes.expires_at ? newRes.expires_at.toISOString().split('T')[0] : null,
+        expiresAt:        newRes.expires_at ? newRes.expires_at.toISOString() : null,
+        reservedAt:       newRes.reserved_at.toISOString()
       }
     });
   } catch (err) {
