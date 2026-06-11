@@ -23,6 +23,11 @@ const reservationSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   },
+  reservation_time: {
+    type: String,
+    default: null,   // HH:MM string set by admin; null means use reserved_at
+    trim: true
+  },
   expires_at: {
     type: Date,
     required: function() {
