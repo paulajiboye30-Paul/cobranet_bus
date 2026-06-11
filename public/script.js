@@ -1214,6 +1214,8 @@ async function addReservation() {
   const label = document.getElementById('res-label').value.trim();
   const type  = document.getElementById('res-type').value;
   const days  = parseInt(document.getElementById('res-days').value, 10) || 1;
+  const resTimeInput = document.getElementById('res-time');
+  const reservation_time = resTimeInput ? resTimeInput.value.trim() : '';
   const errEl = document.getElementById('res-error');
 
   if (!label) {
@@ -1223,12 +1225,13 @@ async function addReservation() {
   }
 
   try {
-    const data = await apiRequest('/reservations', 'POST', { seat, label, type, days });
+    const data = await apiRequest('/reservations', 'POST', { seat, label, type, days, reservation_time });
 
     if (data.success) {
       cachedReservations.push(data.reservation);
       errEl.style.display = 'none';
       document.getElementById('res-label').value = '';
+      if (resTimeInput) resTimeInput.value = '';
       renderReservationsList();
       refreshAdminStats();
       showToast('Seat ' + seat + ' reserved (' + (type === 'permanent' ? 'Permanent' : days + ' day(s)') + ').', 'success');
@@ -1295,7 +1298,7 @@ function renderReservationsList() {
         <div class="res-seat-badge">${r.seat}</div>
         <div>
           <div class="res-item-name">${r.label}</div>
-          <div class="res-item-meta">${meta} &nbsp;Seat ${r.seat}</div>
+          <div class="res-item-meta">${meta} &nbsp;Seat ${r.seat}${r.reservation_time ? ' &nbsp;· ' + r.reservation_time : ''}</div>
         </div>
       </div>
       <button class="btn btn-danger btn-sm" onclick="removeReservation(${r.seat})">Remove</button>`;

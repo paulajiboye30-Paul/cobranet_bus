@@ -352,6 +352,11 @@
             <label class="form-label">Duration (days)</label>
             <input class="form-input" id="res-days" type="number" min="1" value="1" />
           </div>
+          <div class="form-group">
+            <label class="form-label">Reservation Time</label>
+            <input class="form-input" id="res-time" type="time" />
+            <small style="color:var(--gray-500);font-size:.75rem;">Time to display on the seat (leave blank to use current time)</small>
+          </div>
         </div>
         <div id="res-error" class="alert alert-error" style="display:none;margin-top:.5rem;"></div>
         <button class="btn btn-primary btn-sm mt-2" onclick="addReservation()">Add Reservation</button>
