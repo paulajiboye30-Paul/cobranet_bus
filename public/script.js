@@ -688,7 +688,6 @@ function renderResultsTable(bk) {
 
   // Staff count excludes reserved-seat placeholders (same logic as before)
   const staffCount = allEntries.filter(([, v]) => !v._reserved).length;
-  document.getElementById('results-count').textContent = staffCount + ' staff booked';
 
   tbody.innerHTML = '';
 
@@ -1215,7 +1214,12 @@ async function addReservation() {
   const type  = document.getElementById('res-type').value;
   const days  = parseInt(document.getElementById('res-days').value, 10) || 1;
   const resTimeInput = document.getElementById('res-time');
-  const reservation_time = resTimeInput ? resTimeInput.value.trim() : '';
+  const rawTime = resTimeInput ? resTimeInput.value.trim() : '';
+  // Normalise to HH:MM:SS — browsers with step="1" give HH:MM:SS, but
+  // some may still give HH:MM; pad with :00 when seconds are absent.
+  const reservation_time = rawTime
+    ? (rawTime.split(':').length === 2 ? rawTime + ':00' : rawTime)
+    : '';
   const errEl = document.getElementById('res-error');
 
   if (!label) {
